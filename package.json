@@ -1,0 +1,32 @@
+{
+  "name": "@w2a/sdk",
+  "version": "0.1.0",
+  "description": "W2A web-to-app ad SDK for web games (Portal Tag runtime)",
+  "type": "module",
+  "main": "dist/w2a-sdk.esm.js",
+  "module": "dist/w2a-sdk.esm.js",
+  "browser": "dist/w2a-sdk.min.js",
+  "types": "types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./dist/w2a-sdk.esm.js",
+      "browser": "./dist/w2a-sdk.min.js"
+    }
+  },
+  "files": [
+    "dist",
+    "types",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "SHA=$(shasum -a 256 src/index.js | cut -d' ' -f1) && npx --yes esbuild src/index.js --bundle --format=esm --banner:js=\"/* w2a-src-sha256:$SHA */\" --outfile=dist/w2a-sdk.esm.js && npx --yes esbuild src/index.js --bundle --format=iife --global-name=W2ANS --minify --banner:js=\"/* w2a-src-sha256:$SHA */\" --outfile=dist/w2a-sdk.min.js && npx --yes esbuild src/index.js --bundle --format=iife --global-name=W2ANS --banner:js=\"/* w2a-src-sha256:$SHA */\" --outfile=dist/w2a-sdk.iife.js",
+    "test": "node --test"
+  },
+  "sideEffects": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voldcs/w2a-sdk-public"
+  }
+}

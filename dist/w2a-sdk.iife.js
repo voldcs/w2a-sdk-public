@@ -1,0 +1,1775 @@
+/* w2a-src-sha256:7d2f2be24abac2e288091089b11b75130ea690b4f2091ed215eaaa1c43a3e15f */
+var W2ANS = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+  // src/index.js
+  var index_exports = {};
+  __export(index_exports, {
+    W2A: () => W2A,
+    createRewardEvidence: () => createRewardEvidence,
+    pickMediaFile: () => pickMediaFile
+  });
+  var STATES = ["loading", "opened", "closed", "rewarded", "failed", "no_fill", "unsupported"];
+  function el(tag, style, props) {
+    const e = document.createElement(tag);
+    if (style) Object.assign(e.style, style);
+    if (props) Object.assign(e, props);
+    return e;
+  }
+  var LAYOUT_CSS = `
+.w2a-backdrop{
+ --w2a-t:env(safe-area-inset-top,0px);--w2a-r:env(safe-area-inset-right,0px);
+ --w2a-b:env(safe-area-inset-bottom,0px);--w2a-l:env(safe-area-inset-left,0px);
+ position:fixed;top:0;left:0;width:100%;height:100vh;height:100dvh;z-index:2147483647;
+ display:block;margin:0;padding:0;overflow:hidden;overscroll-behavior:contain;
+ background:#000;color:#fff;isolation:isolate;box-sizing:border-box;
+ font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.w2a-backdrop *,.w2a-backdrop *::before,.w2a-backdrop *::after{box-sizing:border-box}
+.w2a-stage,.w2a-cardwrap,.w2a-card{position:absolute;inset:0;display:block;width:100%;height:100%;
+ min-width:0;min-height:0;margin:0;padding:0;overflow:hidden;border:0;border-radius:0;
+ box-shadow:none;background:transparent}
+.w2a-media{position:absolute;z-index:10;inset:0;display:block;
+ width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
+ margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;
+ object-fit:contain;object-position:50% 50%}
+iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;height:100%;
+ border:0;border-radius:0;box-shadow:none;background:#000}
+/* Cover is opt-in and bounded. It is allowed only when the creative is marked
+   crop-safe AND the viewport/creative mismatch is at most 1.25x, which keeps at
+   least 80% of the source dimension on screen. Outside that window it falls back
+   to contain on its own - a square creative on a tall phone would lose 27% from
+   each side, and no amount of "full bleed" is worth that. */
+@media (min-aspect-ratio:9/20) and (max-aspect-ratio:45/64){
+ .w2a-backdrop[data-fit="auto"][data-crop-safe="true"][data-ratio="9x16"] :is(img,video).w2a-media{object-fit:cover}}
+@media (min-aspect-ratio:64/45) and (max-aspect-ratio:20/9){
+ .w2a-backdrop[data-fit="auto"][data-crop-safe="true"][data-ratio="16x9"] :is(img,video).w2a-media{object-fit:cover}}
+@media (min-aspect-ratio:4/5) and (max-aspect-ratio:5/4){
+ .w2a-backdrop[data-fit="auto"][data-crop-safe="true"][data-ratio="1x1"] :is(img,video).w2a-media{object-fit:cover}}
+@media (min-aspect-ratio:16/25) and (max-aspect-ratio:1/1){
+ .w2a-backdrop[data-fit="auto"][data-crop-safe="true"][data-ratio="4x5"] :is(img,video).w2a-media{object-fit:cover}}
+.w2a-backdrop[data-fit="cover"][data-crop-safe="true"] :is(img,video).w2a-media{object-fit:cover}
+/* The CTA overlays the creative; it does not sit in a region beneath it. Anchored
+   bottom-right, and the top edge starts below the close control's exclusion zone
+   (12px offset + 50px target + 24px gap) so a thumb reaching for one never finds
+   the other. */
+.w2a-side{position:absolute;z-index:30;
+ top:calc(var(--w2a-t) + 86px);right:calc(var(--w2a-r) + 16px);bottom:calc(var(--w2a-b) + 16px);
+ width:min(340px,calc(100% - var(--w2a-l) - var(--w2a-r) - 32px));
+ display:flex;flex-direction:column;align-items:stretch;justify-content:flex-end;gap:8px;
+ overflow:hidden;text-align:left;pointer-events:none}
+/* Legibility scrim, portrait only. The panel here is a transparent overlay
+   directly ON the creative, and a text-shadow is the wrong tool for that job: it
+   does nothing for the app icon, which is an image, and it does not survive the
+   creative's own artwork landing in the same place. On a real handset the
+   advertiser's "PLAY NOW" button sat exactly on top of the icon and the app name,
+   and the whole listing row became unreadable - the one row whose entire purpose
+   is telling the player what they are about to install.
+   ...
+   A scrim behind the panel fixes it for every creative rather than for the ones
+   we happened to test, and it costs nothing on a dark creative. It is drawn on
+   the stage, not on the panel, because a gradient confined to a 340px box reads
+   as a floating rectangle; full width reads as the ad. It sits BELOW the panel
+   (z-index 20 against the panel's 30) and above the creative.
+   ...
+   End card only. During playback the panel is deliberately minimal so it does not
+   compete with the film, and a scrim then would be dimming the thing the
+   advertiser is paying to show. */
+.w2a-backdrop:not([data-phase="video"]) .w2a-stage::after{content:'';position:absolute;
+ left:0;right:0;bottom:0;height:34%;z-index:20;pointer-events:none;
+ background:linear-gradient(to top,rgba(9,11,20,.92) 0%,rgba(9,11,20,.55) 45%,transparent 100%)}
+/* The scrim alone was NOT enough, and the first attempt at this bug proved it on
+   a handset: a gradient fixes CONTRAST, and the defect here is COLLISION. The
+   creative's own "PLAY NOW" button occupies the same band as the listing row, so
+   dimming it just produced a grey button still sitting across the app icon and
+   the app name. The listing needs a surface of its own - which is what every
+   end card that works, AppLovin's and Unity's included, actually is.
+   ...
+   Portrait only, end card only, and only when there IS a listing to seat: during
+   playback the panel stays a transparent overlay so it does not box in the film. */
+.w2a-backdrop:not([data-phase="video"]) .w2a-side{
+ background:rgba(9,11,20,.9);border-radius:20px 20px 0 0;
+ padding:16px 16px calc(var(--w2a-b) + 16px);
+ top:auto;left:var(--w2a-l);right:var(--w2a-r);bottom:0;width:auto;
+ box-shadow:0 -12px 32px rgba(0,0,0,.45)}
+.w2a-headline{margin:0;color:#fff;font-size:20px;line-height:1.2;font-weight:750;
+ text-shadow:0 2px 8px rgba(0,0,0,.8)}
+.w2a-subtitle{margin:0;color:rgba(255,255,255,.88);font-size:13px;line-height:1.35;
+ font-weight:500;text-shadow:0 2px 6px rgba(0,0,0,.8)}
+/* During video the creative is the message: host copy must not reserve screen. */
+.w2a-backdrop[data-phase="video"] .w2a-headline,
+.w2a-backdrop[data-phase="video"] .w2a-subtitle{display:none}
+/* A playable owns the screen WHILE it is being played, so the panel is hidden
+   then - not for the whole ad. It used to be hidden unconditionally, which
+   meant a playable had no Install button at any point: the creative posts
+   complete expecting the parent to reveal its CTA (the iframe is sandboxed
+   without top navigation, so it cannot link to a store itself), and the parent
+   never did. Every playable impression was unconvertible. */
+.w2a-backdrop[data-kind="playable"][data-phase="video"] .w2a-side{display:none}
+.w2a-cta{pointer-events:auto;touch-action:manipulation;appearance:none;
+ display:flex;align-items:center;justify-content:center;
+ width:100%;min-height:52px;margin:0;padding:12px 20px;
+ border:0;border-radius:12px;background:#4ade80;color:#052e16;
+ box-shadow:0 4px 18px rgba(0,0,0,.42);
+ font:inherit;font-size:17px;line-height:1.2;font-weight:750;text-align:center;
+ text-decoration:none;cursor:pointer;transition:background .2s,color .2s}
+.w2a-backdrop[data-phase="endcard"] .w2a-cta{min-height:56px;font-size:18px}
+/* Our own request id / format / placement is plumbing. It was being rendered
+   under every creative, where a partner reads it as an unfinished build. */
+.w2a-backdrop:not([data-debug="true"]) .w2a-meta{display:none!important}
+.w2a-meta{margin:0;pointer-events:none}
+/* 50px, not 44: MRAID 3.0 requires a close region of at least 50x50 dp and
+   recommends the top-right corner. Apple's 44pt is a floor for buttons in
+   general, not for the control that dismisses a full-screen ad. */
+.w2a-backdrop button[data-w2a="close"],.w2a-backdrop button[data-w2a="sound"]{
+ position:absolute;display:grid;place-items:center;width:50px;height:50px;margin:0;padding:0;
+ border:1px solid rgba(255,255,255,.4);border-radius:50%;background:rgba(0,0,0,.62);
+ color:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4);font:inherit;line-height:1;
+ cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.w2a-backdrop button[data-w2a="close"]{z-index:60;
+ top:calc(var(--w2a-t) + 12px);right:calc(var(--w2a-r) + 12px);left:auto;font-size:24px}
+.w2a-backdrop button[data-w2a="sound"]{z-index:50;
+ top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;font-size:21px}
+.w2a-backdrop button[data-w2a="reward"]{pointer-events:auto;z-index:30;
+ background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35);color:#fff;
+ padding:10px 16px;border-radius:10px;font-size:14px;min-height:44px;cursor:pointer}
+.w2a-backdrop button[data-w2a="close"]:focus-visible,
+.w2a-backdrop button[data-w2a="sound"]:focus-visible,
+.w2a-cta:focus-visible{outline:3px solid #fff;outline-offset:3px}
+/* LANDSCAPE: a real two-column split, not an overlay.
+   The partner's complaint was that the Install button covered the gameplay in
+   landscape, and the reference they pointed at (Google's renderer) puts the
+   creative in its own column with a panel beside it - nothing overlapping.
+   Portrait keeps the full-bleed creative with a compact overlay; only landscape
+   splits. "Full screen" describes the opaque ad SURFACE; it cannot also mean
+   every creative covers every viewport uncropped, because those are
+   geometrically incompatible.
+
+   The 600x320 floor is where two useful columns stop fitting: below it the panel
+   cannot hold a 44px-tall CTA, the app name and the safe-area insets at once, so
+   it falls back to the compact overlay rather than degrading into a sliver.
+
+   The creative column is sized from the creative's OWN ratio - data-ratio is
+   already set from the intrinsic dimensions - and capped so the panel keeps its
+   minimum. No JS measures anything, so rotation re-resolves for free. */
+.w2a-backdrop[data-ratio="16x9"]{--w2a-media-w:177.778dvh}
+.w2a-backdrop[data-ratio="1x1"]{--w2a-media-w:100dvh}
+.w2a-backdrop[data-ratio="4x5"]{--w2a-media-w:80dvh}
+.w2a-backdrop[data-ratio="9x16"]{--w2a-media-w:56.25dvh}
+@media (orientation:landscape) and (min-width:600px) and (min-height:320px){
+ .w2a-stage{display:grid;
+  grid-template-columns:min(var(--w2a-media-w,100dvh),calc(100vw - 280px)) minmax(280px,1fr);
+  grid-template-rows:100%}
+ .w2a-cardwrap{position:relative;inset:auto;grid-column:1;grid-row:1;
+  width:100%;height:100%;background:#000}
+ .w2a-card{position:absolute;inset:0;width:100%;height:100%}
+ /* Never crop in the split: the column is already the creative's own shape, so
+    cover here would throw away edges for no gain. */
+ .w2a-card :is(img,video).w2a-media{object-fit:contain!important}
+ /* No scrim in landscape: the panel owns its own column and sits beside the
+    creative rather than on top of it, so there is nothing to be unreadable
+    against. */
+ .w2a-backdrop .w2a-stage::after{display:none}
+ /* and no bottom sheet either - the panel is already its own column. */
+ .w2a-backdrop:not([data-phase="video"]) .w2a-side{background:none;border-radius:0;
+  padding:0;box-shadow:none;top:auto;left:auto;right:auto;bottom:auto;width:auto}
+ .w2a-side{position:relative;inset:auto;grid-column:2;grid-row:1;
+  width:auto;height:100%;
+  padding:calc(var(--w2a-t) + 74px) calc(var(--w2a-r) + 20px) calc(var(--w2a-b) + 20px) 20px;
+  display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:10px;
+  background:#fff;pointer-events:none}
+ /* The panel is our surface, not the advertiser's - dark-on-light, like the
+    store page the click lands on. */
+ .w2a-headline{color:#111827;text-shadow:none;font-size:22px;text-align:center}
+ /* Through .w2a-backdrop so specificity decides this, not source order. The
+    light-on-dark defaults below are written for the portrait overlay and sit
+    LATER in the sheet; at equal specificity they won, and the panel rendered
+    near-white text on white. */
+ .w2a-app-icon{align-self:center;width:64px;height:64px;border-radius:16px;
+  background:#e5e7eb;box-shadow:none}
+ .w2a-backdrop .w2a-store-facts{color:#111827;justify-content:center;text-shadow:none}
+ .w2a-backdrop .w2a-store-name{text-align:center;text-shadow:none}
+ .w2a-backdrop .w2a-store-name{color:#4b5563}
+ .w2a-backdrop .w2a-subtitle{color:#4b5563;text-shadow:none}
+ .w2a-subtitle{color:#4b5563;text-shadow:none;text-align:center}
+ /* The name has to be visible next to the button during video too - the partner
+    asked for it explicitly - so the video-phase rule that hides it is undone
+    inside the panel, where there is room for it. */
+ .w2a-backdrop[data-phase="video"] .w2a-headline{display:block;font-size:19px}
+ .w2a-cta{width:min(280px,100%);align-self:center;min-height:48px;font-size:16px}
+ .w2a-backdrop[data-phase="endcard"] .w2a-cta{width:min(360px,100%);min-height:56px}
+ /* A playable owns its whole surface; giving it a panel would double the CTA. */
+ .w2a-backdrop[data-kind="playable"] .w2a-stage{display:block}}
+
+/* End-card store listing: icon, rating, downloads. Shown only on the end card -
+   during playback the panel stays minimal so it does not compete with the
+   creative, which is what the partner asked for. */
+/* PORTRAIT the panel is a transparent overlay directly on the creative, so
+   everything left-aligns with the headline and everything carries the same
+   shadow. Centring only the icon and the facts row - which is what a naive
+   copy of the landscape panel does - reads as three things that were positioned
+   by different people. And a line without the shadow is unreadable the moment
+   the creative under it is light, which is exactly what the store name did. */
+.w2a-app-icon{display:block;width:56px;height:56px;border-radius:14px;
+ object-fit:cover;background:rgba(255,255,255,.15);align-self:flex-start;flex:0 0 auto;
+ box-shadow:0 2px 10px rgba(0,0,0,.45)}
+.w2a-store-facts{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:4px 14px;
+ margin:0;font-size:14px;font-weight:650;text-shadow:0 2px 6px rgba(0,0,0,.8)}
+.w2a-store-name{margin:0;font-size:13px;text-align:left;opacity:.85;
+ text-shadow:0 2px 6px rgba(0,0,0,.8)}
+.w2a-backdrop[data-phase="video"] :is(.w2a-app-icon,.w2a-store-facts,.w2a-store-name){display:none}
+.w2a-store-facts{color:#f3f4f6}.w2a-store-name{color:#d1d5db}
+
+/* Ad disclosure. Top-CENTRE deliberately: the top-left corner holds the sound
+   control and the top-right holds close, so a corner label collides with the two
+   controls a thumb reaches for. Opaque black on white is 21:1 contrast, well past
+   the 4.5:1 accessibility floor, because this has to stay legible over an
+   arbitrary advertiser creative rather than over our own background. */
+.w2a-ad-label{position:absolute;z-index:70;
+ top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);
+ display:flex;align-items:center;justify-content:center;
+ min-height:20px;padding:2px 8px;border-radius:4px;
+ background:#000;color:#fff;
+ font:600 12px/16px system-ui,-apple-system,sans-serif;
+ letter-spacing:.02em;white-space:nowrap;pointer-events:none}
+/* Landscape BELOW the split floor: too narrow or too short for two columns, so
+   it stays the compact overlay and only trims the controls.
+   The condition is the exact COMPLEMENT of the split query above, not an
+   overlapping one. It used to be max-height:620px, which overlapped the split
+   range and, sitting later in the sheet, silently won: the panel was pinned to
+   300px inside a 624px column, leaving a black stripe down the right of every
+   landscape ad. Two rules that can both match the same viewport are decided by
+   source order, which is not a thing anyone should have to reason about here. */
+@media (orientation:landscape) and (max-width:599px),
+       (orientation:landscape) and (max-height:319px){
+ .w2a-side{width:min(300px,calc(100% - var(--w2a-l) - var(--w2a-r) - 32px))}
+ .w2a-headline,.w2a-subtitle{display:none}
+ .w2a-cta,.w2a-backdrop[data-phase="endcard"] .w2a-cta{min-height:48px;padding:10px 18px;font-size:16px}}
+`;
+  function pickMediaFile(nodes, slotRatio) {
+    const cands = [];
+    for (const n of nodes || []) {
+      const url = (n.textContent || "").trim();
+      if (!url) continue;
+      const w = Number(n.getAttribute("width")), h = Number(n.getAttribute("height"));
+      cands.push({
+        url,
+        // A file that declares no size is still playable, so it stays in as a
+        // last resort instead of being dropped - it just never beats a sized one.
+        ratio: w > 0 && h > 0 ? w / h : null,
+        bitrate: Number(n.getAttribute("bitrate")) || 0
+      });
+    }
+    if (!cands.length) return null;
+    const dist = (c) => c.ratio == null ? Infinity : Math.abs(Math.log(c.ratio / slotRatio));
+    cands.sort((a, b) => dist(a) - dist(b) || a.bitrate - b.bitrate);
+    return cands[0].url;
+  }
+  function ratioBucket(w, h) {
+    if (!(w > 0 && h > 0)) return null;
+    const r = w / h;
+    const buckets = [["16x9", 16 / 9], ["1x1", 1], ["4x5", 4 / 5], ["9x16", 9 / 16]];
+    let best = null, bestD = Infinity;
+    for (const [name, br] of buckets) {
+      const d = Math.abs(Math.log(r / br));
+      if (d < bestD) {
+        bestD = d;
+        best = name;
+      }
+    }
+    return bestD < 0.06 ? best : null;
+  }
+  function viewportRatio() {
+    const w = typeof window !== "undefined" && window.innerWidth || 0;
+    const h = typeof window !== "undefined" && window.innerHeight || 0;
+    return w > 0 && h > 0 ? w / h : 1;
+  }
+  function isFramed() {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  }
+  function fullscreenAllowed() {
+    return typeof document !== "undefined" && document.fullscreenEnabled === true;
+  }
+  function foreignFullscreen() {
+    return typeof document !== "undefined" && !!document.fullscreenElement;
+  }
+  function hasActivation() {
+    const ua = typeof navigator !== "undefined" && navigator.userActivation;
+    return !!(ua && ua.isActive);
+  }
+  function injectLayoutCss(doc) {
+    if (!doc || doc.getElementById("w2a-layout-css")) return;
+    const s = doc.createElement("style");
+    s.id = "w2a-layout-css";
+    s.textContent = LAYOUT_CSS;
+    (doc.head || doc.documentElement).appendChild(s);
+  }
+  var PUBLIC_STRING_FIELDS = Object.freeze([
+    "state",
+    "requestId",
+    "format",
+    "placement",
+    "reason",
+    "detail",
+    "campaignId",
+    "tier",
+    "impressionState",
+    "readinessProof",
+    "audio",
+    "playableSizing",
+    "fullscreen",
+    "presentation",
+    // A reward is money the PUBLISHER pays its own player, so the evidence behind
+    // it has to travel with the event. `dwell_only` next to `full` is the whole
+    // point: a mediation partner can tell a watched video from a waited-out one.
+    "rewardBasis",
+    "rewardQuality"
+  ]);
+  var PUBLIC_NUMBER_FIELDS = Object.freeze([
+    "priceCpm",
+    "rewardCoverageRatio",
+    "rewardAttentionRatio",
+    "rewardDurationMs",
+    "rewardVisibleMs",
+    "rewardSeeks",
+    "rewardRejectedJumps",
+    "rewardMaxRate"
+  ]);
+  var PUBLIC_BOOLEAN_FIELDS = Object.freeze([
+    "preloaded",
+    "matched",
+    "impressionConfirmed",
+    "clicked",
+    "visibilityEnforced",
+    "synthetic",
+    "framed",
+    "ctaGatedByImpression",
+    "completed",
+    "paused",
+    "rewardEarned",
+    "rewardEndedSeen",
+    "playableCompleteSeen",
+    "rewardVisibilityEnforced"
+  ]);
+  function publicEventDto(data) {
+    const out = {};
+    for (const key of PUBLIC_STRING_FIELDS) {
+      if (typeof data[key] === "string") out[key] = data[key];
+    }
+    for (const key of PUBLIC_NUMBER_FIELDS) {
+      if (Number.isFinite(data[key])) out[key] = data[key];
+    }
+    for (const key of PUBLIC_BOOLEAN_FIELDS) {
+      if (typeof data[key] === "boolean") out[key] = data[key];
+    }
+    return Object.freeze(out);
+  }
+  var showTeardown = /* @__PURE__ */ new WeakMap();
+  function createRewardEvidence(opts = {}) {
+    const optNum = (v, d) => Number.isFinite(Number(v)) ? Number(v) : d;
+    const minStepMs = optNum(opts.minStepMs, 500);
+    const tolerance = optNum(opts.tolerance, 1.25);
+    const maxRate = optNum(opts.maxRate, 1.05);
+    const requiredRatio = optNum(opts.requiredRatio, 0.9);
+    const fullRatio = optNum(opts.fullRatio, 0.98);
+    const covered = [];
+    let attentionMs = 0;
+    let anchor = null;
+    let ended = false;
+    let seeks = 0, rejectedJumps = 0, rateViolations = 0, maxRateSeen = 0;
+    const atLeast = (a, b) => a >= b - 1e-9;
+    function merge(startMs, endMs) {
+      if (!(endMs > startMs)) return;
+      let lo = startMs, hi = endMs;
+      const keep = [];
+      for (const iv of covered) {
+        if (iv[1] < lo || iv[0] > hi) {
+          keep.push(iv);
+          continue;
+        }
+        lo = Math.min(lo, iv[0]);
+        hi = Math.max(hi, iv[1]);
+      }
+      keep.push([lo, hi]);
+      keep.sort((a, b) => a[0] - b[0]);
+      covered.length = 0;
+      for (const iv of keep) covered.push(iv);
+    }
+    const coveredMs = () => covered.reduce((sum, iv) => sum + (iv[1] - iv[0]), 0);
+    return {
+      /**
+       * One observation of the player. Call it on `timeupdate` and on every event
+       * that ends a playback epoch (pause, seeking, waiting, ratechange, hide,
+       * ended) - an epoch that is not closed leaves its final segment uncounted.
+       */
+      sample(s) {
+        const mediaMs = Number(s && s.mediaSec) * 1e3;
+        const wallMs = Number(s && s.wallMs);
+        const rate = Number(s && s.rate);
+        if (!Number.isFinite(mediaMs) || !Number.isFinite(wallMs)) {
+          anchor = null;
+          return;
+        }
+        if (Number.isFinite(rate) && rate > maxRateSeen) maxRateSeen = rate;
+        if (!s.playing || !s.visible || !(rate > 0)) {
+          anchor = null;
+          return;
+        }
+        if (rate > maxRate) {
+          rateViolations++;
+          anchor = null;
+          return;
+        }
+        if (anchor === null) {
+          anchor = { mediaMs, wallMs };
+          return;
+        }
+        const dw = wallMs - anchor.wallMs;
+        const dm = mediaMs - anchor.mediaMs;
+        if (dw < 0) {
+          anchor = { mediaMs, wallMs };
+          return;
+        }
+        if (dm <= 0) {
+          if (dm < 0) seeks++;
+          anchor = { mediaMs, wallMs };
+          return;
+        }
+        if (dm > Math.max(minStepMs, tolerance * dw)) {
+          rejectedJumps++;
+          seeks++;
+          anchor = { mediaMs, wallMs };
+          return;
+        }
+        merge(anchor.mediaMs, mediaMs);
+        attentionMs += Math.min(dm, dw);
+        anchor = { mediaMs, wallMs };
+      },
+      /**
+       * End the current playback epoch without discarding what it already earned.
+       *
+       * The credibility test compares media progress against WALL progress, and
+       * that comparison is only meaningful while the film is actually rolling. A
+       * buffering stall breaks it: thirty seconds of wall time accrue with the
+       * media standing still, and the next sample - a seek straight to the end -
+       * then looks like thirty seconds of honest playback. The caller has to say
+       * when playback stopped, because nothing in the numbers can tell.
+       */
+      break() {
+        anchor = null;
+      },
+      /** The creative reached its natural end. */
+      end() {
+        ended = true;
+      },
+      /**
+       * @param durationMs total media length, from metadata or from the terminal
+       *        currentTime. An unusable duration cannot be scored: there is no
+       *        denominator, so the verdict is "not earned by watching" and the
+       *        caller falls back to its dwell policy rather than inventing one.
+       */
+      verdict(durationMs) {
+        const d = Number(durationMs);
+        const usable = Number.isFinite(d) && d > 0;
+        const cov = usable ? covered.reduce((sum, iv) => sum + Math.max(0, Math.min(iv[1], d) - Math.max(iv[0], 0)), 0) : coveredMs();
+        const att = Math.min(attentionMs, usable ? d : Infinity);
+        const coverageRatio = usable ? cov / d : null;
+        const attentionRatio = usable ? att / d : null;
+        const earned = ended && usable && atLeast(coverageRatio, requiredRatio) && atLeast(attentionRatio, requiredRatio);
+        const full = earned && atLeast(coverageRatio, fullRatio) && atLeast(attentionRatio, fullRatio);
+        const round = (v) => v === null ? null : Math.round(v * 1e3) / 1e3;
+        return {
+          earned,
+          quality: earned ? full ? "full" : "threshold" : "not_earned",
+          endedSeen: ended,
+          durationMs: usable ? Math.round(d) : null,
+          coverageMs: Math.round(cov),
+          attentionMs: Math.round(att),
+          coverageRatio: round(coverageRatio),
+          attentionRatio: round(attentionRatio),
+          seeks,
+          rejectedJumps,
+          rateViolations,
+          maxRate: Math.round(maxRateSeen * 100) / 100
+        };
+      }
+    };
+  }
+  var W2ASDK = class {
+    constructor() {
+      this.cfg = null;
+      this.sessionId = cryptoId();
+      this.listeners = { ad_state: /* @__PURE__ */ new Set(), w2a_pause: /* @__PURE__ */ new Set(), w2a_resume: /* @__PURE__ */ new Set(), w2a_impression: /* @__PURE__ */ new Set() };
+      this.active = null;
+      this.overlay = null;
+      this._timers = [];
+    }
+    init(cfg) {
+      this.cfg = Object.assign(
+        {
+          backend: "",
+          publisherId: "demo-pub",
+          gameId: "block-blitz",
+          cell: "matched",
+          siteId: "demo",
+          creativeFormat: "image",
+          billableMs: 1e3,
+          rewardSecs: 5,
+          requestTimeoutMs: 4e3,
+          maxVideoMs: 1e4,
+          maxPlayableMs: 2e4,
+          minVisibleBeforeClickMs: 1e3,
+          requireVisible: true,
+          preloadTtlMs: 3e4,
+          // 'auto' asks for sound and falls back to muted if the browser refuses.
+          // 'muted' is for publishers whose own game audio must keep playing.
+          audio: "auto"
+        },
+        // Present-but-undefined keys are DROPPED rather than allowed to overwrite
+        // a default. `{ ...base, billableMs: maybeFromRemoteJson }` is the ordinary
+        // way to assemble a config, every field is optional in the published type,
+        // and `Object.assign` copies an explicit `undefined` over the default just
+        // as happily as a number. `billableMs: undefined` then made the billing
+        // deadline `NaN`, so the ad rendered, opened and stayed clickable while
+        // nothing was ever billed and nothing reported - a silent total loss of
+        // impression revenue for that publisher. `requestTimeoutMs: undefined`
+        // aborts every ad request instead.
+        cfg && Object.fromEntries(Object.entries(cfg).filter(([, v]) => v !== void 0))
+      );
+      return this;
+    }
+    on(evt, cb) {
+      this.listeners[evt]?.add(cb);
+      return () => this.listeners[evt]?.delete(cb);
+    }
+    _emit(evt, data) {
+      const payload = publicEventDto(data || {});
+      for (const cb of [...this.listeners[evt] || []]) {
+        try {
+          cb(payload);
+        } catch (e) {
+        }
+      }
+    }
+    // consent: read (don't enforce in demo) TCF / GPP / US-privacy signals if a
+    // publisher CMP is present; pass state to the backend which records it.
+    _readConsent() {
+      try {
+        if (this.cfg && this.cfg.consentState) return this.cfg.consentState;
+        if (typeof window.__tcfapi === "function") return "tcf_present";
+        if (typeof window.__gpp === "function") return "gpp_present";
+        const m = document.cookie.match(/(?:^|;\s*)usprivacy=([^;]+)/);
+        if (m) return "usp:" + decodeURIComponent(m[1]);
+      } catch (e) {
+      }
+      return "unknown";
+    }
+    /** test seam: override the monotonic clock (null restores the real one) */
+    __setNow(fn) {
+      _nowFn = fn || null;
+    }
+    showInterstitial(placement) {
+      return this._show("interstitial", placement);
+    }
+    showRewarded(placement) {
+      return this._show("rewarded", placement);
+    }
+    async _show(format, placement) {
+      if (!this.cfg) throw new Error("W2A.init was not called");
+      if (this.active) {
+        this._state({ requestId: cryptoId(), state: "failed", reason: "busy", format, placement });
+        return;
+      }
+      const claim = this.tryShowReady(format, placement);
+      if (claim.started) return;
+      const ctx = { requestId: cryptoId(), format, placement };
+      this.active = ctx;
+      this._state({ ...ctx, state: "loading" });
+      const r = await this._requestAd(ctx.requestId, format, placement);
+      if (r.error) {
+        this._finish(ctx, { state: "failed", reason: r.error });
+        return;
+      }
+      const resp = r.resp;
+      if (!resp || resp.no_fill || !resp.creative) {
+        const reason = noFillReason(resp);
+        this._finish(ctx, {
+          state: reason === "unsupported_device" ? "unsupported" : "no_fill",
+          reason,
+          ...resp && resp.detail ? { detail: String(resp.detail) } : {}
+        });
+        return;
+      }
+      try {
+        this._render(ctx, resp);
+      } catch (e) {
+        this._finish(ctx, { state: "failed", reason: "creative_error" });
+      }
+    }
+    // Shared /v1/request payload (used by _show and preload).
+    _requestBody(requestId, format, placement) {
+      return JSON.stringify({
+        publisherId: this.cfg.publisherId,
+        gameId: this.cfg.gameId,
+        placement,
+        format,
+        // format = ad format (interstitial/rewarded)
+        creativeFormat: this.cfg.creativeFormat || "image",
+        // image | vast | playable
+        sessionId: this.sessionId,
+        cell: this.cfg.cell,
+        siteId: this.cfg.siteId,
+        requestId,
+        // Publisher price floor. It was accepted by the backend but the SDK never
+        // sent it, so a publisher could not actually set one - and a test could
+        // not force a real no-fill decision through the real auction.
+        ...this.cfg.floorCpm != null ? { floorCpm: this.cfg.floorCpm } : {},
+        consent_state: this._readConsent(),
+        lang: navigator.language,
+        ua: navigator.userAgent,
+        // Country is a HINT, and it is labelled as one. A browser cannot prove
+        // where it is; the region subtag of the locale is the cheapest honest
+        // guess. Real geo is an IP lookup on the server - see geo_source, which
+        // exists so reporting can never mistake this for a verified country.
+        ...localeRegion() ? { geo: localeRegion(), geo_source: "client_hint" } : {},
+        // Real detection by default. `deviceOverride` exists ONLY so an automated
+        // harness on a desktop can exercise mobile-targeted creatives; it is opt-in,
+        // named for what it is, and never set by a real integration.
+        ...this.cfg.deviceOverride || detectDevice()
+      });
+    }
+    /**
+     * One ad request with an HONEST failure taxonomy. Everything here used to be
+     * reported as `timeout`, because `fetch` does not reject on 4xx/5xx - it
+     * resolves, and it was `r.json()` that threw on the error body. A mediation
+     * host could not tell "we were slow" from "the ad server is broken" from "the
+     * ad server answered garbage", and all three are different operational bugs.
+     * Returns { resp } or { error, status }.
+     */
+    async _requestAd(requestId, format, placement) {
+      const ctrl = new AbortController();
+      let timedOut = false;
+      const abortTimer = setTimeout(() => {
+        timedOut = true;
+        ctrl.abort();
+      }, this.cfg.requestTimeoutMs);
+      let r;
+      try {
+        r = await fetch(this.cfg.backend + "/v1/request", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          signal: ctrl.signal,
+          body: this._requestBody(requestId, format, placement)
+        });
+      } catch (e) {
+        clearTimeout(abortTimer);
+        return { error: timedOut ? "timeout" : "network_error" };
+      }
+      clearTimeout(abortTimer);
+      if (!r || !r.ok) return { error: "http_error", status: r ? r.status : 0 };
+      try {
+        const resp = await r.json();
+        if (!resp || typeof resp !== "object") return { error: "bad_response" };
+        return { resp };
+      } catch (e) {
+        return { error: "bad_response" };
+      }
+    }
+    // Prefetch the ad decision WITHOUT rendering, so a later showInterstitial/
+    // showRewarded renders synchronously inside a user gesture. Needed when a
+    // mediation adapter must pass back to a PARTNER ad on no_fill (partner ad
+    // calls require user activation). Returns { filled }. The cached decision is
+    // consumed by the next matching _show, or expires after preloadTtlMs.
+    async preload(format, placement) {
+      if (!this.cfg) throw new Error("W2A.init was not called");
+      const key = format + "|" + placement;
+      this._preloads = this._preloads || {};
+      this._preloadSeq = this._preloadSeq || {};
+      const gen = this._preloadSeq[key] = (this._preloadSeq[key] || 0) + 1;
+      this._discardPreload(key, "superseded");
+      const requestId = cryptoId();
+      const rec = { key, gen, format, placement, requestId, state: "requesting", ts: Date.now() };
+      this._preloads[key] = rec;
+      const settle = (state, reason) => {
+        if (this._preloads[key] === rec) {
+          rec.state = state;
+          rec.reason = reason;
+        }
+        return { filled: !!rec.resp, ready: state === "ready", reason };
+      };
+      const r = await this._requestAd(requestId, format, placement);
+      if (this._preloadSeq[key] !== gen) {
+        this._release(requestId, r.resp);
+        return { filled: false, ready: false, reason: "superseded" };
+      }
+      if (r.error) return settle("failed", r.error);
+      const resp = r.resp;
+      if (!resp || resp.no_fill || !resp.creative) return settle("failed", noFillReason(resp));
+      rec.resp = resp;
+      rec.state = "loading";
+      const showBudgetMs = Math.max(this.cfg.billableMs || 0, this.cfg.maxVideoMs || 0, this.cfg.maxPlayableMs || 0) + (this.cfg.requestTimeoutMs || 4e3) + 2e3;
+      const ttlBound = Date.now() + (this.cfg.preloadTtlMs || 3e4);
+      const leaseBound = resp.reservationExpiresAt ? resp.reservationExpiresAt - showBudgetMs : Infinity;
+      rec.readyUntil = Math.min(ttlBound, leaseBound);
+      if (rec.readyUntil <= Date.now()) {
+        this._discardPreload(key, "lease_too_short");
+        return { filled: true, ready: false, reason: "lease_too_short" };
+      }
+      const ctx = { requestId, format, placement, preloaded: true };
+      rec.ctx = ctx;
+      const loadMs = this.cfg.creativeLoadTimeoutMs || 6e3;
+      const outcome = await new Promise((resolve) => {
+        let done = false;
+        const finish = (o) => {
+          if (!done) {
+            done = true;
+            clearTimeout(to);
+            resolve(o);
+          }
+        };
+        const to = setTimeout(() => finish({ ok: false, reason: "creative_timeout" }), loadMs);
+        try {
+          this._render(ctx, resp, {
+            hidden: true,
+            onLoaded: () => finish({ ok: true }),
+            onLoadError: (reason) => finish({ ok: false, reason })
+          });
+        } catch (e) {
+          finish({ ok: false, reason: "creative_error" });
+        }
+      });
+      if (this._preloads[key] !== rec) {
+        this._release(requestId, resp);
+        return { filled: true, ready: false, reason: "superseded" };
+      }
+      if (!outcome.ok) {
+        this._discardPreload(key, outcome.reason);
+        return { filled: true, ready: false, reason: outcome.reason };
+      }
+      rec.state = "ready";
+      rec.expiryTimer = setTimeout(() => this._discardPreload(key, "preload_expired"), Math.max(0, rec.readyUntil - Date.now()));
+      return { filled: true, ready: true, requestId, readinessProof: ctx.readinessProof };
+    }
+    /** Advisory only. The correctness gate is tryShowReady(), which claims atomically. */
+    isReady(format, placement) {
+      const rec = this._preloads && this._preloads[format + "|" + placement];
+      return !!(rec && rec.state === "ready" && Date.now() <= rec.readyUntil);
+    }
+    /**
+     * Fail-closed, synchronous, single-step claim-and-show. This is the mediation
+     * entry point: it either starts our ad right now, inside the caller's user
+     * gesture, or it tells you why not so you can pass back in the SAME gesture.
+     *
+     * It exists instead of `isReady() && show()` because that pair is a
+     * time-of-check/time-of-use race: expiry, refresh or another caller can land
+     * between the two. Nothing here awaits.
+     */
+    tryShowReady(format, placement) {
+      if (!this.cfg) return { started: false, reason: "not_initialised" };
+      const key = format + "|" + placement;
+      const rec = this._preloads && this._preloads[key];
+      if (!rec) return { started: false, reason: "no_preload" };
+      if (rec.state === "failed") {
+        delete this._preloads[key];
+        return { started: false, reason: rec.reason || "not_ready", requestId: rec.requestId };
+      }
+      if (rec.state !== "ready") return { started: false, reason: "not_ready", requestId: rec.requestId };
+      if (Date.now() > rec.readyUntil) {
+        this._discardPreload(key, "preload_expired");
+        return { started: false, reason: "preload_expired" };
+      }
+      if (this.active) return { started: false, reason: "busy" };
+      if (foreignFullscreen()) return { started: false, reason: "fullscreen_conflict" };
+      rec.state = "claimed";
+      delete this._preloads[key];
+      if (rec.expiryTimer) {
+        clearTimeout(rec.expiryTimer);
+        rec.expiryTimer = null;
+      }
+      this._activate(rec.ctx);
+      return { started: true, requestId: rec.requestId };
+    }
+    /** Tear down a preloaded (never shown) ad and hand its reservation back. */
+    _discardPreload(key, reason) {
+      const rec = this._preloads && this._preloads[key];
+      if (!rec || rec.state === "claimed") return;
+      delete this._preloads[key];
+      if (rec.expiryTimer) {
+        clearTimeout(rec.expiryTimer);
+        rec.expiryTimer = null;
+      }
+      if (rec.ctx) {
+        rec.ctx.completed = true;
+        if (rec.ctx.overlay) rec.ctx.overlay.remove();
+      }
+      const teardown = rec.ctx && showTeardown.get(rec.ctx);
+      if (teardown) {
+        if (teardown.playableMsg) {
+          window.removeEventListener("message", teardown.playableMsg);
+          teardown.playableMsg = null;
+        }
+        if (teardown.visHandler) {
+          if (typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", teardown.visHandler);
+          teardown.visHandler = null;
+        }
+        teardown.rewardSnapshot = null;
+        if (teardown.abortCreative) {
+          teardown.abortCreative();
+          teardown.abortCreative = null;
+        }
+        if (teardown.stopMedia) {
+          try {
+            teardown.stopMedia();
+          } catch {
+          }
+          teardown.stopMedia = null;
+        }
+        if (teardown.timers) {
+          for (const t of teardown.timers) {
+            clearTimeout(t);
+            clearInterval(t);
+          }
+          const mine = new Set(teardown.timers);
+          this._timers = this._timers.filter((t) => !mine.has(t));
+          teardown.timers.length = 0;
+        }
+      }
+      rec.state = "released";
+      rec.reason = reason;
+      this._release(rec.requestId, rec.resp);
+    }
+    /**
+     * Give a reservation back. Best-effort and fire-and-forget: the server sweeps
+     * on TTL anyway, this just returns the budget sooner. The release capability
+     * comes from the server with the bid - a bare requestId would let anyone who
+     * saw an id (logs, reporting, the dashboard) cancel someone else's ad.
+     */
+    _release(requestId, resp) {
+      const token = resp && resp.releaseToken;
+      if (!token || !requestId || typeof fetch !== "function") return;
+      try {
+        fetch(this.cfg.backend + "/v1/release", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          keepalive: true,
+          body: JSON.stringify({ requestId, releaseToken: token })
+        }).catch(() => {
+        });
+      } catch (e) {
+      }
+    }
+    /**
+     * Build the ad. With `opts.hidden` the overlay is attached to the DOM but kept
+     * `display:none`, the creative loads, and NOTHING user-visible happens until
+     * `_activate(ctx)`. That is what makes P0-03 possible: the bytes are already
+     * decoded when the game finally calls show, so the player never waits.
+     *
+     * Why the overlay is ATTACHED while hidden instead of built detached: removing
+     * an <iframe> from the document destroys its browsing context, so a detached
+     * playable would re-navigate (and re-run) the moment it was inserted. Same
+     * reason we never reparent it later - we only flip `display`.
+     *
+     * opts.onLoaded(reason?) fires once the creative is genuinely usable;
+     * opts.onLoadError(reason) fires once if it can never be shown.
+     */
+    _render(ctx, resp, opts = {}) {
+      const hidden = !!opts.hidden;
+      const win = resp && resp.decision && resp.decision.win;
+      if (win) {
+        ctx.campaignId = win.campaignId;
+        ctx.tier = win.tier;
+        ctx.priceCpm = win.priceCpm;
+        if (typeof win.matched === "boolean") ctx.matched = win.matched;
+      }
+      const onLoaded = opts.onLoaded || (() => {
+      });
+      const onLoadError = opts.onLoadError || (() => {
+      });
+      let settledLoad = false;
+      let creativeRendered = false;
+      const loaded = () => {
+        if (!settledLoad) {
+          settledLoad = true;
+          creativeRendered = true;
+          onLoaded();
+        }
+      };
+      const loadFailed = (reason) => {
+        if (settledLoad) return;
+        settledLoad = true;
+        if (hidden) onLoadError(reason);
+        else this._finish(ctx, { state: "failed", reason });
+      };
+      ctx._onActivate = [];
+      const whenActive = (fn) => {
+        if (ctx.visible) fn();
+        else ctx._onActivate.push(fn);
+      };
+      if (!hidden) {
+        ctx.paused = true;
+        this._emit("w2a_pause", { ...ctx, state: "opened" });
+      }
+      injectLayoutCss(document);
+      const backdrop = el("div", null, { className: "w2a-backdrop" });
+      backdrop.setAttribute("data-open", "true");
+      backdrop.setAttribute("data-phase", "video");
+      backdrop.setAttribute("data-fit", this.cfg.creativeFit || "auto");
+      backdrop.setAttribute("data-crop-safe", this.cfg.cropSafe === false ? "false" : "true");
+      if (this.cfg.debugOverlay === true) backdrop.setAttribute("data-debug", "true");
+      const stage = el("div", null, { className: "w2a-stage" });
+      const cardWrap = el("div", null, { className: "w2a-cardwrap" });
+      const c = resp.creative;
+      const src = (u) => new URL(u, this.cfg.backend || location.origin).href;
+      const card = el("div", null, { className: "w2a-card" });
+      const side = el("div", null, { className: "w2a-side" });
+      const title = el("div", null, { className: "w2a-headline", textContent: c.headline || "Toon Blocks" });
+      const sub = el("div", null, { className: "w2a-subtitle", textContent: c.sub || "Block puzzle \xB7 Free" });
+      const cta = el("a", null, { className: "w2a-cta", textContent: "Install" });
+      cta.setAttribute("data-w2a", "cta");
+      cta.target = "_top";
+      const rewardBtn = el("button", {
+        background: "transparent",
+        border: "1px solid #4b5163",
+        color: "#c7ccdd",
+        padding: "10px 18px",
+        borderRadius: "10px",
+        fontSize: "14px",
+        marginTop: "4px",
+        cursor: "pointer",
+        display: ctx.format === "rewarded" ? "block" : "none"
+      }, { textContent: ctx.format === "rewarded" ? `Reward in ${this.cfg.rewardSecs}s\u2026` : "" });
+      rewardBtn.setAttribute("data-w2a", "reward");
+      let rewardEarned = false;
+      const paintEarned = () => {
+        rewardBtn.textContent = "Reward earned - close";
+        rewardBtn.style.borderColor = "#4ade80";
+        rewardBtn.style.color = "#4ade80";
+        rewardBtn.onclick = () => this._finish(ctx, { state: "closed" });
+      };
+      const evidence = createRewardEvidence();
+      if (ctx.format === "rewarded") ctx.rewardEarned = false;
+      const grantReward = (report) => {
+        if (ctx.format !== "rewarded" || rewardEarned || ctx.completed) return;
+        rewardEarned = true;
+        Object.assign(ctx, report, { rewardEarned: true });
+        paintEarned();
+        this._state({ ...ctx, state: "rewarded" });
+      };
+      const recordVideoEvidence = (v) => {
+        if (ctx.format !== "rewarded") return;
+        ctx.rewardEndedSeen = v.endedSeen;
+        ctx.rewardDurationMs = v.durationMs;
+        ctx.rewardCoverageRatio = v.coverageRatio;
+        ctx.rewardAttentionRatio = v.attentionRatio;
+        ctx.rewardSeeks = v.seeks;
+        ctx.rewardRejectedJumps = v.rejectedJumps;
+        ctx.rewardMaxRate = v.maxRate;
+      };
+      const closeAfterSecs = Math.max(0, Number(this.cfg.closeAfterSecs ?? 5));
+      const close = el("button", {
+        // The countdown is not a button yet: taps must not land on it, or a fast
+        // double-tap on the ad would close it before it was ever seen.
+        pointerEvents: "none",
+        cursor: "default",
+        color: "#bbb"
+      }, { textContent: closeAfterSecs > 0 ? String(closeAfterSecs) : "\xD7" });
+      close.setAttribute("data-w2a", "close");
+      const soundBtn = el("button", { display: "none" }, { textContent: "\u{1F507}" });
+      soundBtn.setAttribute("data-w2a", "sound");
+      soundBtn.setAttribute("aria-label", "Unmute");
+      const showMeta = this.cfg.debugOverlay === true;
+      const meta = el(
+        "div",
+        {
+          color: "#565c72",
+          fontSize: "11px",
+          wordBreak: "break-all",
+          maxWidth: "90vw",
+          textAlign: "center",
+          display: showMeta ? "block" : "none"
+        },
+        { className: "w2a-meta", textContent: `req ${ctx.requestId.slice(0, 12)} \xB7 ${ctx.format} \xB7 ${ctx.placement}` }
+      );
+      cardWrap.appendChild(card);
+      const app = resp.app || {};
+      const icon = el("img", null, { className: "w2a-app-icon", alt: "" });
+      icon.hidden = true;
+      if (app.iconUrl) {
+        icon.src = src(app.iconUrl);
+        icon.hidden = false;
+        icon.addEventListener("error", () => {
+          icon.hidden = true;
+        }, { once: true });
+      }
+      if (app.name) title.textContent = app.name;
+      if (app.shortDescription) sub.textContent = app.shortDescription;
+      const facts = el("div", null, { className: "w2a-store-facts" });
+      for (const f of [
+        app.rating && app.rating.display,
+        app.price && app.price.display,
+        app.downloads && app.downloads.display
+      ].filter(Boolean)) {
+        facts.appendChild(el("span", null, { textContent: String(f) }));
+      }
+      facts.hidden = facts.children.length === 0;
+      const storeName = el("div", null, { className: "w2a-store-name", textContent: app.storeName || "" });
+      storeName.hidden = !app.storeName;
+      side.append(icon, title, sub, facts, storeName, cta, rewardBtn, meta);
+      stage.append(cardWrap, side);
+      const adLabel = el("div", null, { className: "w2a-ad-label", textContent: "Advertisement" });
+      adLabel.setAttribute("data-w2a", "ad-label");
+      backdrop.append(adLabel, close, soundBtn, stage);
+      if (hidden) backdrop.style.display = "none";
+      document.body.appendChild(backdrop);
+      ctx.overlay = backdrop;
+      if (!hidden) {
+        this.overlay = backdrop;
+        ctx.visible = true;
+        this._enterFullscreen(ctx);
+        this._state({ ...ctx, state: "opened" });
+      }
+      ctx.impStart = ctx.impStart || Date.now();
+      const CLICK_FLOOR_MS = 1e3;
+      const minVisibleMs = Math.max(CLICK_FLOOR_MS, Number(this.cfg.minVisibleBeforeClickMs) || 0);
+      let clickState = "BLOCKED";
+      let qualified = false;
+      let armTimer = null;
+      let visAccum = 0;
+      const requireVisible = this.cfg.requireVisible !== false;
+      const isHidden = () => requireVisible && typeof document !== "undefined" && document.hidden === true;
+      ctx.visibilityEnforced = requireVisible;
+      if (ctx.format === "rewarded") ctx.rewardVisibilityEnforced = requireVisible;
+      let visSince = hidden || isHidden() ? null : now();
+      ctx._startVisible = () => {
+        if (visSince === null && !isHidden()) visSince = now();
+      };
+      const visibleMs = () => visAccum + (visSince !== null ? now() - visSince : 0);
+      const visibleDeadlines = [];
+      const afterVisibleMs = (ms, fn) => whenActive(() => {
+        let fired = false;
+        let timer = null;
+        let lastLeft = Infinity;
+        const arm = () => {
+          if (fired || ctx.completed) return;
+          if (timer) {
+            dropTimer(timer);
+            timer = null;
+          }
+          const left = ms - visibleMs();
+          if (left <= 0) {
+            fired = true;
+            fn();
+            return;
+          }
+          if (visSince === null) {
+            lastLeft = Infinity;
+            return;
+          }
+          if (left >= lastLeft) {
+            fired = true;
+            fn();
+            return;
+          }
+          lastLeft = left;
+          timer = pushTimer(setTimeout(() => {
+            timer = null;
+            arm();
+          }, left));
+        };
+        visibleDeadlines.push(arm);
+        arm();
+      });
+      const rendered = () => {
+        if (typeof backdrop.getBoundingClientRect !== "function") return true;
+        const r = backdrop.getBoundingClientRect();
+        return !r || r.width > 0 && r.height > 0;
+      };
+      let onVisibilityChange = null;
+      const teardown = { visHandler: null, playableMsg: null, rewardSnapshot: null, timers: [] };
+      showTeardown.set(ctx, teardown);
+      teardown.releaseUnbilled = () => {
+        if (!qualified) this._release(ctx.requestId, resp);
+      };
+      const pushTimer = (t) => {
+        teardown.timers.push(t);
+        this._timers.push(t);
+        return t;
+      };
+      const dropTimer = (t) => {
+        clearTimeout(t);
+        clearInterval(t);
+        let i = teardown.timers.indexOf(t);
+        if (i >= 0) teardown.timers.splice(i, 1);
+        i = this._timers.indexOf(t);
+        if (i >= 0) this._timers.splice(i, 1);
+      };
+      const visHandler = () => {
+        if (onVisibilityChange) {
+          try {
+            onVisibilityChange();
+          } catch {
+          }
+        }
+        if (isHidden()) {
+          if (visSince !== null) {
+            visAccum += now() - visSince;
+            visSince = null;
+          }
+        } else if (ctx.visible && visSince === null) visSince = now();
+        for (const arm of visibleDeadlines) {
+          try {
+            arm();
+          } catch {
+          }
+        }
+        scheduleArm();
+      };
+      teardown.visHandler = visHandler;
+      if (typeof document.addEventListener === "function") document.addEventListener("visibilitychange", visHandler);
+      const armCTA = () => {
+        if (clickState !== "BLOCKED") return;
+        clickState = "READY";
+        cta.href = resp.clickUrl;
+        cta.style.pointerEvents = "auto";
+      };
+      armCTA();
+      ctx.ctaGatedByImpression = false;
+      const scheduleArm = () => {
+        if (clickState === "BLOCKED" && rendered()) armCTA();
+      };
+      let closeArmed = false;
+      const unlockClose = () => {
+        closeArmed = true;
+        close.textContent = "\xD7";
+        close.style.pointerEvents = "auto";
+        close.style.cursor = "pointer";
+        close.style.color = "#ddd";
+      };
+      if (closeAfterSecs <= 0) unlockClose();
+      else {
+        const closeAt = closeAfterSecs * 1e3;
+        whenActive(() => {
+          const paint = setInterval(() => {
+            if (ctx.completed || closeArmed) {
+              clearInterval(paint);
+              return;
+            }
+            const left = Math.ceil((closeAt - visibleMs()) / 1e3);
+            close.textContent = String(Math.max(1, left));
+          }, 250);
+          pushTimer(paint);
+        });
+        afterVisibleMs(closeAt, unlockClose);
+      }
+      const qualify = () => {
+        if (qualified || ctx.completed) return;
+        qualified = true;
+        ctx.impressionState = "pending";
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), this.cfg.requestTimeoutMs);
+        const settle = (ok) => {
+          clearTimeout(to);
+          ctx.impressionState = ok ? "confirmed" : "degraded";
+          ctx.impressionConfirmed = ok;
+          if (!ctx.completed) scheduleArm();
+          this._emit("w2a_impression", {
+            requestId: ctx.requestId,
+            format: ctx.format,
+            placement: ctx.placement,
+            state: ctx.state || "closed",
+            impressionState: ctx.impressionState,
+            impressionConfirmed: ok
+          });
+        };
+        fetch(this.cfg.backend + "/v1/impression", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          signal: ctrl.signal,
+          // A CTA tap navigates the top-level document, which can tear this page
+          // down mid-flight. Without keepalive the browser cancels the request and
+          // the advertiser is never billed for an ad that was seen AND clicked -
+          // the most valuable impression there is.
+          keepalive: true,
+          body: JSON.stringify({
+            requestId: ctx.requestId,
+            impressionToken: resp.impressionToken,
+            shownMs: Math.round(visibleMs()),
+            freqKey: this.sessionId
+          })
+        }).then(async (r) => {
+          if (!r || !r.ok) return settle(false);
+          let body = {};
+          try {
+            body = await r.json() || {};
+          } catch (e) {
+          }
+          settle(body.deduped !== true);
+        }, () => settle(false));
+        scheduleArm();
+      };
+      let videoStarted = false;
+      let rewardPath = "dwell";
+      if (c.type === "vast" && c.vastUrl) {
+        rewardPath = "video";
+        const wantAudio = this.cfg.audio !== "muted";
+        backdrop.setAttribute("data-kind", "video");
+        const vid = el("video", null, { className: "w2a-media" });
+        vid.muted = !wantAudio;
+        vid.playsInline = true;
+        vid.setAttribute("playsinline", "");
+        card.appendChild(vid);
+        ctx.audio = wantAudio ? "requested" : "muted_by_config";
+        const sampleVideo = (playing = vid.paused !== true) => evidence.sample({
+          mediaSec: vid.currentTime,
+          wallMs: now(),
+          rate: Number.isFinite(Number(vid.playbackRate)) ? Number(vid.playbackRate) : 1,
+          playing,
+          // `visSince !== null` is exactly "the ad is activated AND on screen" -
+          // a preloaded overlay sits in the DOM with the clock stopped, so it
+          // cannot bank attention before the game has shown it.
+          visible: visSince !== null
+        });
+        const endEpoch = (creditTail) => {
+          if (creditTail) sampleVideo(true);
+          evidence.break();
+        };
+        for (const evt of ["timeupdate", "playing", "ratechange"]) {
+          vid.addEventListener(evt, () => sampleVideo());
+        }
+        for (const evt of ["pause", "waiting"]) {
+          vid.addEventListener(evt, () => endEpoch(true));
+        }
+        for (const evt of ["seeking", "seeked", "emptied", "error", "abort"]) {
+          vid.addEventListener(evt, () => endEpoch(false));
+        }
+        teardown.stopMedia = () => {
+          try {
+            vid.pause();
+          } catch {
+          }
+          try {
+            vid.removeAttribute("src");
+            vid.src = "";
+            if (vid.load) vid.load();
+          } catch {
+          }
+        };
+        let pausedByHide = false;
+        let startPlayback = null;
+        onVisibilityChange = () => {
+          endEpoch(true);
+          if (isHidden()) {
+            if (!vid.paused) {
+              pausedByHide = true;
+              try {
+                vid.pause();
+              } catch {
+              }
+            }
+            return;
+          }
+          if (!ctx.visible) return;
+          if (vid.ended === true) return;
+          if (!pausedByHide && !(videoStarted && vid.paused)) return;
+          if (!videoStarted && startPlayback) {
+            pausedByHide = false;
+            startPlayback();
+            return;
+          }
+          resumePlayback();
+        };
+        const resumePlayback = () => {
+          try {
+            const p = vid.play();
+            if (p && p.then) p.then(() => {
+              pausedByHide = false;
+            }, () => {
+              pausedByHide = true;
+            });
+            else pausedByHide = false;
+          } catch {
+            pausedByHide = true;
+          }
+        };
+        backdrop.addEventListener("pointerdown", () => {
+          if (pausedByHide && vid.paused && vid.ended !== true && !isHidden()) resumePlayback();
+        }, { capture: true, passive: true });
+        const videoDurationMs = () => {
+          const d = Number(vid.duration) * 1e3;
+          if (Number.isFinite(d) && d > 0) return d;
+          const t = Number(vid.currentTime) * 1e3;
+          return Number.isFinite(t) && t > 0 ? t : null;
+        };
+        const settleVideoReward = () => {
+          const v = evidence.verdict(videoDurationMs());
+          recordVideoEvidence(v);
+          if (v.earned) grantReward({ rewardBasis: "watched_video", rewardQuality: v.quality });
+          else if (!rewardEarned && ctx.format === "rewarded") ctx.rewardQuality = "not_earned";
+        };
+        teardown.rewardSnapshot = () => {
+          endEpoch(true);
+          if (vid.ended === true) evidence.end();
+          settleVideoReward();
+        };
+        const unmute = (ev) => {
+          if (ctx.audio === "audible" || !vid.muted) return;
+          if (ev && ev.isTrusted === false) return;
+          if (ev && ev.target && ev.target.closest && ev.target.closest('[data-w2a="close"]')) return;
+          vid.muted = false;
+          ctx.audio = "audible";
+          soundBtn.style.display = "none";
+          const p = vid.play();
+          if (p && p.catch) p.catch(() => {
+            vid.muted = true;
+            ctx.audio = "muted_by_policy";
+            soundBtn.style.display = "block";
+          });
+        };
+        const offerUnmute = () => {
+          soundBtn.style.display = "block";
+          soundBtn.addEventListener("click", unmute);
+          backdrop.addEventListener("pointerdown", unmute, { capture: true, passive: true });
+        };
+        vid.addEventListener("loadeddata", () => {
+          if (vid.videoWidth > 0 && vid.readyState >= 2) loaded();
+        });
+        vid.addEventListener("error", () => loadFailed("vast_media_error"), { once: true });
+        const creativeAbort = new AbortController();
+        teardown.abortCreative = () => {
+          try {
+            creativeAbort.abort();
+          } catch {
+          }
+        };
+        fetch(src(c.vastUrl), { signal: creativeAbort.signal }).then((r) => {
+          if (!r || !r.ok) throw new Error("vast_http");
+          return r.text();
+        }).then((xml) => {
+          const doc = new DOMParser().parseFromString(xml, "application/xml");
+          const murl = pickMediaFile(doc.querySelectorAll("MediaFile"), viewportRatio());
+          if (!murl) {
+            loadFailed("vast_no_media");
+            return;
+          }
+          let audioSettled = false;
+          const tryPlay = () => whenActive(() => {
+            if (isHidden()) {
+              pausedByHide = true;
+              return;
+            }
+            const p = vid.play();
+            if (!p || !p.catch) return;
+            p.catch((err) => {
+              if (!err || err.name !== "NotAllowedError") return;
+              if (audioSettled || vid.muted) return;
+              audioSettled = true;
+              vid.muted = true;
+              ctx.audio = "muted_by_policy";
+              offerUnmute();
+              const again = vid.play();
+              if (again && again.catch) again.catch(() => {
+              });
+            });
+          });
+          startPlayback = tryPlay;
+          vid.addEventListener("loadeddata", tryPlay, { once: true });
+          vid.addEventListener("canplay", tryPlay, { once: true });
+          vid.src = src(murl);
+          tryPlay();
+        }).catch(() => loadFailed("vast_fetch_failed"));
+        vid.addEventListener("ended", () => {
+          endEpoch(true);
+          evidence.end();
+          try {
+            qualify();
+          } catch {
+          }
+          settleVideoReward();
+        });
+        vid.addEventListener("loadedmetadata", () => {
+          const b = ratioBucket(vid.videoWidth, vid.videoHeight);
+          if (b) backdrop.setAttribute("data-ratio", b);
+        });
+        vid.addEventListener("ended", () => backdrop.setAttribute("data-phase", "endcard"));
+        vid.addEventListener("playing", () => {
+          videoStarted = true;
+          if (ctx.audio !== "muted_by_config") ctx.audio = vid.muted ? "muted_by_policy" : "audible";
+        }, { once: true });
+        afterVisibleMs(this.cfg.maxVideoMs, () => {
+          if (videoStarted) qualify();
+          else this._finish(ctx, { state: "failed", reason: "vast_never_played" });
+        });
+      } else if (c.type === "playable" && c.url) {
+        backdrop.setAttribute("data-kind", "playable");
+        const ifr = el("iframe", null, { className: "w2a-frame" });
+        const pw = Number(c.width), ph = Number(c.height);
+        if (pw > 0 && ph > 0) {
+          ifr.setAttribute("data-w2a-ar", `${pw}x${ph}`);
+          ifr.style.setProperty("--w2a-ar", String(pw / ph));
+          ctx.playableSizing = "declared";
+        } else {
+          ctx.playableSizing = "responsive";
+        }
+        ifr.setAttribute("sandbox", "allow-scripts");
+        ifr.src = src(c.url);
+        card.appendChild(ifr);
+        const playableMsg = (e) => {
+          if (e.source !== ifr.contentWindow) return;
+          if (!e.data || e.data.w2a !== "playable") return;
+          if (e.data.type === "ready" || e.data.type === "load_complete") {
+            ctx.readinessProof = "strong";
+            loaded();
+          }
+          if (e.data.type === "complete") {
+            ctx.playableCompleteSeen = true;
+            backdrop.setAttribute("data-phase", "endcard");
+          }
+          if (e.data.type === "cta") cta.click();
+        };
+        teardown.playableMsg = playableMsg;
+        window.addEventListener("message", playableMsg);
+        ifr.addEventListener("load", () => {
+          if (!ctx.readinessProof) ctx.readinessProof = "weak";
+          loaded();
+          afterVisibleMs(this.cfg.billableMs, qualify);
+        }, { once: true });
+        afterVisibleMs(this.cfg.maxPlayableMs, () => {
+          if (!qualified) this._finish(ctx, { state: "failed", reason: "playable_never_loaded" });
+        });
+      } else if (c.type === "image" && c.url) {
+        backdrop.setAttribute("data-kind", "image");
+        backdrop.setAttribute("data-phase", "endcard");
+        const img = el("img", null, { className: "w2a-media", alt: c.headline || "ad" });
+        img.addEventListener("load", () => {
+          const b = ratioBucket(img.naturalWidth, img.naturalHeight);
+          if (b) backdrop.setAttribute("data-ratio", b);
+          const done = () => {
+            ctx.readinessProof = "strong";
+            loaded();
+          };
+          if (typeof img.decode === "function") img.decode().then(done, () => loadFailed("image_decode_failed"));
+          else done();
+          afterVisibleMs(this.cfg.billableMs, qualify);
+        }, { once: true });
+        img.addEventListener("error", () => loadFailed("image_load_failed"), { once: true });
+        card.appendChild(img);
+        img.src = src(c.url);
+      } else {
+        card.appendChild(el("div", { color: "#fff", fontSize: "30px", fontWeight: "800" }, { textContent: c.headline || "Toon Blocks" }));
+        ctx.readinessProof = "strong";
+        loaded();
+        afterVisibleMs(this.cfg.billableMs, qualify);
+      }
+      cta.addEventListener("click", (e) => {
+        if (clickState !== "READY") {
+          e.preventDefault();
+          return;
+        }
+        if (!e.isTrusted && !this.cfg.allowSyntheticClicks) {
+          e.preventDefault();
+          return;
+        }
+        clickState = "CLICKED";
+        cta.style.pointerEvents = "none";
+        this._finish(ctx, {
+          // impression fields come from ctx (single source of truth for all
+          // terminal paths); repeating them here is how they drifted apart before
+          state: "closed",
+          clicked: true,
+          // `visibilityEnforced` now rides on ctx for every exit, not just this one
+          ...e.isTrusted ? {} : { synthetic: true }
+          // синтетика помечается явно
+        });
+      });
+      if (ctx.format === "rewarded") {
+        const wanted = Number(this.cfg.rewardSecs);
+        const floorMs = Math.max(1e3, (Number.isFinite(wanted) && wanted > 0 ? wanted : 5) * 1e3);
+        const byDwell = rewardPath !== "video";
+        const grantDwell = () => {
+          if (rewardEarned || !byDwell) return false;
+          if (!creativeRendered) return false;
+          if (visibleMs() < floorMs) return false;
+          grantReward({
+            rewardBasis: "visible_dwell",
+            // Never `full`: dwell is a policy, not proof that anything was
+            // watched, and a partner must be able to tell the two apart.
+            rewardQuality: "dwell_only",
+            rewardVisibleMs: Math.round(visibleMs())
+          });
+          return true;
+        };
+        if (byDwell) teardown.rewardSnapshot = grantDwell;
+        whenActive(() => {
+          rewardBtn.textContent = `Reward in ${Math.ceil(floorMs / 1e3)}s\u2026`;
+          const t = setInterval(() => {
+            if (rewardEarned || ctx.completed) {
+              clearInterval(t);
+              return;
+            }
+            const leftMs = floorMs - visibleMs();
+            if (leftMs > 0) {
+              rewardBtn.textContent = `Reward in ${Math.ceil(leftMs / 1e3)}s\u2026`;
+              return;
+            }
+            clearInterval(t);
+            if (byDwell) {
+              if (!grantDwell()) rewardBtn.textContent = "Ad did not load";
+              return;
+            }
+            rewardBtn.textContent = "Watch to the end to claim";
+            rewardBtn.onclick = () => {
+              if (rewardEarned) this._finish(ctx, { state: "closed" });
+            };
+          }, 250);
+          pushTimer(t);
+        });
+      }
+      close.addEventListener("click", () => {
+        if (closeArmed) this._finish(ctx, { state: "closed" });
+      });
+    }
+    /**
+     * Make a prepared (hidden) ad visible. This is the LOOM_VISIBLE boundary and
+     * it is deliberately synchronous: it is called from inside the game's click
+     * handler, so it must not await anything or the user gesture is lost.
+     */
+    _activate(ctx) {
+      if (ctx.visible || ctx.completed) return;
+      if (ctx.overlay) ctx.overlay.style.display = "flex";
+      this.overlay = ctx.overlay;
+      this.active = ctx;
+      ctx.visible = true;
+      ctx.impStart = Date.now();
+      if (ctx._startVisible) ctx._startVisible();
+      ctx.paused = true;
+      this._emit("w2a_pause", { ...ctx, state: "opened" });
+      const queued = ctx._onActivate || [];
+      ctx._onActivate = [];
+      for (const fn of queued) {
+        try {
+          fn();
+        } catch (e) {
+        }
+      }
+      this._enterFullscreen(ctx);
+      this._state({ ...ctx, state: "opened" });
+    }
+    /**
+     * What surface can this SDK actually deliver, here, right now? Callable
+     * before any ad runs, so a publisher can fix their iframe attributes rather
+     * than discover the limit from a QA sheet that says "FAILED".
+     */
+    capabilities() {
+      const framed = isFramed();
+      const fs = fullscreenAllowed();
+      return {
+        framed,
+        fullscreenAllowed: fs,
+        // What we would achieve for an ad shown right now.
+        coverage: !framed ? "window" : fs ? "screen_if_gesture" : "document",
+        viewport: typeof window !== "undefined" ? [window.innerWidth, window.innerHeight] : null
+      };
+    }
+    /**
+     * Fullscreen is a property of a show, not a state of it: it never changes
+     * whether the ad appears, only how much of the screen it covers, and the
+     * outcome is recorded on ctx so every event carries the truth.
+     */
+    _enterFullscreen(ctx) {
+      ctx.framed = isFramed();
+      ctx.presentation = "document";
+      if (!ctx.framed) {
+        ctx.fullscreen = "unnecessary";
+        ctx.presentation = "window";
+        return;
+      }
+      if (!fullscreenAllowed()) {
+        ctx.fullscreen = "unavailable";
+        return;
+      }
+      if (foreignFullscreen()) {
+        ctx.fullscreen = "inherited";
+        ctx.presentation = "screen";
+        return;
+      }
+      if (!hasActivation()) {
+        ctx.fullscreen = "no_activation";
+        return;
+      }
+      const root = document.documentElement;
+      if (!root || typeof root.requestFullscreen !== "function") {
+        ctx.fullscreen = "unavailable";
+        return;
+      }
+      ctx.fullscreen = "requested";
+      try {
+        const p = root.requestFullscreen();
+        if (p && p.then) {
+          p.then(() => {
+            ctx.fullscreen = "entered";
+            ctx.presentation = "screen";
+            ctx.fullscreenOwned = true;
+          }, () => {
+            ctx.fullscreen = "denied";
+          });
+        }
+        ctx._fsWatch = () => {
+          if (!document.fullscreenElement && ctx.fullscreenOwned) {
+            ctx.fullscreenOwned = false;
+            ctx.fullscreen = "exited_by_user";
+            ctx.presentation = "document";
+          }
+        };
+        document.addEventListener("fullscreenchange", ctx._fsWatch);
+      } catch {
+        ctx.fullscreen = "denied";
+      }
+    }
+    _exitFullscreen(ctx) {
+      if (ctx._fsWatch) {
+        document.removeEventListener("fullscreenchange", ctx._fsWatch);
+        ctx._fsWatch = null;
+      }
+      if (!ctx.fullscreenOwned) return;
+      ctx.fullscreenOwned = false;
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {
+        });
+      } catch {
+      }
+    }
+    _finish(ctx, ev) {
+      if (ctx.completed) return;
+      const teardown = showTeardown.get(ctx);
+      if (teardown) {
+        if (teardown.finishing) return;
+        teardown.finishing = true;
+        const snap = teardown.rewardSnapshot;
+        teardown.rewardSnapshot = null;
+        if (snap) {
+          try {
+            snap();
+          } catch {
+          }
+        }
+      }
+      ctx.completed = true;
+      if (teardown && teardown.releaseUnbilled) {
+        const releaseUnbilled = teardown.releaseUnbilled;
+        teardown.releaseUnbilled = null;
+        try {
+          releaseUnbilled();
+        } catch {
+        }
+      }
+      if (teardown && teardown.timers) {
+        for (const t of teardown.timers) {
+          clearTimeout(t);
+          clearInterval(t);
+        }
+        const mine = new Set(teardown.timers);
+        this._timers = this._timers.filter((t) => !mine.has(t));
+        teardown.timers.length = 0;
+      }
+      if (teardown) {
+        if (teardown.playableMsg) {
+          window.removeEventListener("message", teardown.playableMsg);
+          teardown.playableMsg = null;
+        }
+        if (teardown.visHandler) {
+          if (typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", teardown.visHandler);
+          teardown.visHandler = null;
+        }
+        if (teardown.abortCreative) {
+          teardown.abortCreative();
+          teardown.abortCreative = null;
+        }
+      }
+      this._exitFullscreen(ctx);
+      if (teardown && teardown.stopMedia) {
+        try {
+          teardown.stopMedia();
+        } catch {
+        }
+        teardown.stopMedia = null;
+      }
+      if (ctx.overlay) {
+        ctx.overlay.remove();
+        if (this.overlay === ctx.overlay) this.overlay = null;
+      }
+      if (this.active === ctx) this.active = null;
+      if (ctx.paused) this._emit("w2a_resume", { ...ctx, ...ev, paused: false });
+      this._state({ ...ctx, ...ev });
+    }
+    _state(s) {
+      if (!STATES.includes(s.state)) return;
+      this._emit("ad_state", s);
+    }
+  };
+  function noFillReason(resp) {
+    const r = resp && resp.reason;
+    if (r === "unsupported_device" || r === "rate_limited") return r;
+    return "no_bid";
+  }
+  function detectDevice() {
+    try {
+      const ua = navigator.userAgent || "";
+      const uad = navigator.userAgentData;
+      let os = "unknown";
+      if (/Android/i.test(ua)) os = "android";
+      else if (/iPhone|iPad|iPod/i.test(ua) || /Macintosh/.test(ua) && navigator.maxTouchPoints > 1) os = "ios";
+      else if (/Windows/i.test(ua)) os = "windows";
+      else if (/Mac OS X|Macintosh/i.test(ua)) os = "macos";
+      else if (/Linux|X11/i.test(ua)) os = "linux";
+      let device_type = "unknown";
+      if (/iPad/i.test(ua) || /Android/i.test(ua) && !/Mobile/i.test(ua)) device_type = "tablet";
+      else if (uad && typeof uad.mobile === "boolean") device_type = uad.mobile ? "mobile" : "desktop";
+      else if (/Mobi|iPhone|iPod/i.test(ua)) device_type = "mobile";
+      else if (os === "windows" || os === "macos" || os === "linux") device_type = "desktop";
+      return { os, device_type };
+    } catch (e) {
+      return { os: "unknown", device_type: "unknown" };
+    }
+  }
+  function localeRegion() {
+    try {
+      const l = navigator.languages && navigator.languages[0] || navigator.language || "";
+      const m = /^[a-z]{2,3}[-_]([A-Za-z]{2})$/.exec(String(l));
+      return m ? m[1].toUpperCase() : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  var _nowFn = null;
+  function now() {
+    if (_nowFn) return _nowFn();
+    return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+  }
+  function cryptoId() {
+    const c = globalThis.crypto;
+    if (c && c.randomUUID) return c.randomUUID();
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  }
+  var W2A = new W2ASDK();
+  if (typeof window !== "undefined") window.W2A = W2A;
+  return __toCommonJS(index_exports);
+})();
