@@ -22,8 +22,10 @@ curl -s https://w2a-ads-demo.azurewebsites.net/version
 ```
 
 It answers with the deployed commit, its subject, the build time and the SHA-256
-of the SDK bundle that host is serving. If that SHA does not match the bundle you
-loaded, you are testing against something else.
+of the canonical SDK source snapshot. Compare `sdkSha256` with
+`release.json.sourceSha256` or with the `w2a-src-sha256` banner in the loaded
+bundle. Verify the exact loaded bundle separately against its artifact SHA-256
+and SRI in `release.json`.
 
 ### Retired hosts - do not configure these
 
@@ -46,9 +48,16 @@ serving surface is deliberately open:
   `/v1/report`. Ask for your address to be added; without it these answer
   `401 sign_in_required`.
 
-## Install postbacks (AppsFlyer Push API)
+## Install postbacks (generic MMP ingress)
 
-Configure the MMP to deliver to:
+`/postback` is a generic authenticated MMP ingress. Its presence does not mean
+that an AppsFlyer delivery product is enabled or configured. At the 2026-08-07
+account check, Push API was not available on the current AppsFlyer plan, and the
+raw Pull API returned `subscription package missing`. The Aggregated API worked,
+but it did not include the click-level join field. None of those observations
+authorizes configuring AppsFlyer to send traffic to this endpoint.
+
+When an MMP push route is provisioned and verified, its delivery contract is:
 
 ```
 POST https://w2a-ads-demo.azurewebsites.net/postback
@@ -58,12 +67,18 @@ POST https://w2a-ads-demo.azurewebsites.net/postback
 |---|---|---|
 | Method | `POST` | `405`. GET is refused on purpose: a GET postback fires from a hidden `<img>` on any page, so installs would be forgeable. |
 | Auth | header `X-W2A-Postback: <secret>` (or `?s=<secret>`) | `403`. The secret is provisioned out of band - it is not in this repository and must not be pasted into a shared channel. Prefer the header: a query string reaches proxy logs. |
-| Click join | selected field **`af_sub1`** must carry our `click_id` | The install arrives, joins nothing, and is reported as `postback_unmatched`. It is NOT counted as an install. |
+| Click join | payload field **`af_sub1`** must carry our `click_id` | The install arrives, joins nothing, and is reported as `postback_unmatched`. It is NOT counted as an install. |
 | Event | `event_name` = `install` | Anything else is recorded as `postback_ignored` and deliberately not counted. See below. |
 
 `click_id` is handed to you by the ad response, inside `clickUrl`. It is the only
-join key: without `af_sub1` the postback cannot be matched to a click, and no
-amount of correct configuration elsewhere recovers it.
+join key: without the mapped sub-parameter the postback cannot be matched to a
+click, and no amount of correct configuration elsewhere recovers it.
+
+AppsFlyer uses different labels for the same sub-parameter on different
+surfaces. The attribution link parameter is `af_sub1`. Push API and Data Locker
+raw data use `af_sub1`. Export and Pull CSV reports label it `Sub param 1`. Check
+the exact product surface before mapping a field; do not infer a CSV header from
+the attribution-link parameter name.
 
 ### What our 200 means
 
@@ -116,19 +131,12 @@ drop would corrupt that reconciliation.
 
 ## Where this SDK comes from
 
-The authority for the SDK source is currently `w2a-demo/sdk-pkg/src/index.js` in
-the `web2app-ads-sdk` repository, which also generates the copies the demo and the
-integrations use and refuses to ship if they have drifted. This repository is a
-published extract of that package.
+The source authority is `w2a-demo/sdk-pkg/src/index.js` in the
+`web2app-ad-sdk` repository. That package also generates the demo and integration
+copies and refuses to ship when they drift. This repository is a reviewed release
+mirror, not the source authority. `release.json` binds each mirror version to the
+reviewed core commit, source hash, type hash, bundle hashes and SRI.
 
-That means there are now two copies of the SDK, and copies drift - which is
-exactly the failure this document was written about. Before this is used by
-anyone outside, one of two things has to be decided and done:
-
-1. **This repository becomes the authority**, and the demo consumes it as a
-   dependency; or
-2. **it stays a published mirror**, and the publish step is wired into the demo's
-   ship script so a mirror can never be stale.
-
-Until then, treat the version here as a snapshot and check `/version` on the stand
-for the SHA of the bundle actually being served.
+Treat an untagged checkout as a release candidate. Before external use, complete
+the gates in `RELEASE.md`, verify the immutable CDN bytes, and compare `/version`
+on the stand with the canonical source marker in the bundle under test.
