@@ -13,8 +13,8 @@ anything - the endpoint is not the one older documents give.
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.2/dist/w2a-sdk.min.js"
-        integrity="sha384-hjIGMxdPXn5EpkW8GQQYQbZGtXyQiRPOracEw/YA+ZidgTAAV+nFy8omWwM4ONY0"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.3/dist/w2a-sdk.min.js"
+        integrity="sha384-DEz0fmD3teaatXYvlwDAleeFodVLQQEApHEl/8tDKkgEoI1NhHMCRxlHP4t6I9uf"
         crossorigin="anonymous"></script>
 ```
 
@@ -54,12 +54,19 @@ levelEndButton.addEventListener('click', () => {
   if (!claim.started) showPartnerInterstitial()
 })
 
-// rewarded (reward only on the 'rewarded' state):
-let rewarded = false
-W2A.on('ad_state', (e) => {
-  if (e.format !== 'rewarded') return
-  if (e.state === 'rewarded') rewarded = true
-  if (e.state === 'closed' && rewarded) grantReward()
+// rewarded: use one latch per show, then dispose it on the terminal
+const placement = 'continue'
+let requestId = null
+let rewardEarned = false
+const off = W2A.on('ad_state', (e) => {
+  if (e.format !== 'rewarded' || e.placement !== placement) return
+  if (requestId && e.requestId !== requestId) return
+  requestId ||= e.requestId
+  if (e.state === 'rewarded') rewardEarned = true
+  if (['closed', 'failed', 'no_fill', 'unsupported'].includes(e.state)) {
+    off()
+    if (rewardEarned) grantReward()
+  }
 })
 
 async function prepareRewarded() {
@@ -78,6 +85,32 @@ need an in-gesture partner fallback. Mediation integrations should use
 `preload()` plus `tryShowReady()` so either W2A or the partner starts inside the
 same user gesture.
 
+## Rewarded video timing
+
+Rewarded VAST video defaults to `videoRewardMs: 30000`. The gate counts credible
+advancing playback, not time since the overlay opened. Paused, buffering,
+seeking, over-speed and hidden-tab stretches do not buy the reward. Eligibility
+latches at the threshold and remains earned until the terminal event.
+An exact-duration 30-second creative can naturally end between browser samples;
+the SDK accepts that boundary only when both credible coverage and attention are
+at least 98%. A natural `ended` event alone never earns the publisher reward.
+
+Billing is independent: `billableMs` defaults to one second of the same credible
+playback. Closing before the reward keeps any qualified impression and emits a
+terminal with `rewardEarned: false` and `reason: 'closed_before_reward'`. A VAST
+`complete` tracker fires only on the media element's natural `ended` event.
+
+The video clocks are separate:
+
+- `requestTimeoutMs` bounds the ad request.
+- `videoStartTimeoutMs` bounds the wait for the first genuine media advance.
+- `videoStallTimeoutMs` resets on every genuine advance.
+- `videoRewardMs` is the rewarded playback gate.
+- `maxVideoMs` is a legacy absolute total. The SDK raises a value that is too
+  short for startup plus the declared creative or reward duration plus stall.
+
+`rewardSecs` applies only to image, text and playable dwell rewards.
+
 ## Unity WebGL
 See `home-makeover-integration/` for the InstantGamesBridge shim
 (`w2a-bridge-shim.js`) that routes Unity bridge ad calls to this SDK with
@@ -86,12 +119,13 @@ platform passback.
 ## States
 `loading -> opened -> closed` (interstitial) ·
 `loading -> opened -> rewarded -> closed` (rewarded) ·
-`loading -> no_fill | failed | unsupported` (terminal). Callbacks are exactly-once.
+`loading -> no_fill | failed | unsupported` (terminal). Every show emits at most
+one terminal; `rewarded` is a non-terminal eligibility latch.
 
 ## Build
 ```
 npm run build   # -> dist/w2a-sdk.esm.js + dist/w2a-sdk.min.js
 ```
 
-Version 0.1.2 · demo/preview grade. Release hashes and the canonical core commit
+Version 0.1.3 · demo/preview grade. Release hashes and the canonical core commit
 are recorded in `release.json`.

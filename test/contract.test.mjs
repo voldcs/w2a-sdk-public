@@ -127,3 +127,15 @@ test('public types expose the synchronous ready-ad claim contract', async () => 
   assert.ok(types.includes('showInterstitial(placement: string): Promise<void>'),
     'types must describe the async direct-show result')
 })
+
+test('rewarded docs preserve the per-show latch through every terminal', async () => {
+  const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
+  assert.ok(readme.includes("if (requestId && e.requestId !== requestId) return"),
+    'the sample must isolate concurrent or stale show events')
+  assert.ok(readme.includes("['closed', 'failed', 'no_fill', 'unsupported'].includes(e.state)"),
+    'a later terminal must not revoke a reward already latched by the show')
+  assert.ok(readme.includes('videoRewardMs: 30000'),
+    'the public release must state the 30-second advancing-playback gate')
+  assert.ok(readme.includes("reason: 'closed_before_reward'"),
+    'the public release must state early-close semantics')
+})

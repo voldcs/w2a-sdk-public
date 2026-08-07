@@ -1,4 +1,4 @@
-/* w2a-src-sha256:c976eec20c42f03385bedc35f805f111ced8430140151dfba7c29745397ead32 */
+/* w2a-src-sha256:3930be1abe2f8e26b823faeed94faff84c606655bbd99c6f2250aedd404b0814 */
 
 // src/index.js
 var STATES = ["loading", "opened", "closed", "rewarded", "failed", "no_fill", "unsupported"];
@@ -526,6 +526,11 @@ var W2ASDK = class {
         billableMs: 1e3,
         rewardSecs: 5,
         requestTimeoutMs: 4e3,
+        // Video has separate clocks. maxVideoMs is retained as the legacy total
+        // deadline from activation, never as an allowance added to the film.
+        videoRewardMs: 3e4,
+        videoStartTimeoutMs: 1e4,
+        videoStallTimeoutMs: 1e4,
         maxVideoMs: 1e4,
         maxPlayableMs: 2e4,
         minVisibleBeforeClickMs: 1e3,
@@ -718,7 +723,13 @@ var W2ASDK = class {
     if (!resp || resp.no_fill || !resp.creative) return settle("failed", noFillReason(resp));
     rec.resp = resp;
     rec.state = "loading";
-    const showBudgetMs = Math.max(this.cfg.billableMs || 0, this.cfg.maxVideoMs || 0, this.cfg.maxPlayableMs || 0) + (this.cfg.requestTimeoutMs || 4e3) + 2e3;
+    let creativeShowBudgetMs = Math.max(0, Number(this.cfg.billableMs) || 0);
+    if (resp.creative.type === "vast") {
+      creativeShowBudgetMs += Math.max(0, Number(this.cfg.videoStartTimeoutMs) || 0);
+    } else if (resp.creative.type === "playable") {
+      creativeShowBudgetMs = Math.max(0, Number(this.cfg.maxPlayableMs) || 0);
+    }
+    const showBudgetMs = creativeShowBudgetMs + (this.cfg.requestTimeoutMs || 4e3) + 2e3;
     const ttlBound = Date.now() + (this.cfg.preloadTtlMs || 3e4);
     const leaseBound = resp.reservationExpiresAt ? resp.reservationExpiresAt - showBudgetMs : Infinity;
     rec.readyUntil = Math.min(ttlBound, leaseBound);
@@ -948,7 +959,7 @@ var W2ASDK = class {
       marginTop: "4px",
       cursor: "pointer",
       display: ctx.format === "rewarded" ? "block" : "none"
-    }, { textContent: ctx.format === "rewarded" ? `Reward in ${this.cfg.rewardSecs}s\u2026` : "" });
+    }, { textContent: ctx.format === "rewarded" ? "Watch to earn reward" : "" });
     rewardBtn.setAttribute("data-w2a", "reward");
     let rewardEarned = false;
     const paintEarned = () => {
@@ -1051,9 +1062,12 @@ var W2ASDK = class {
     let armTimer = null;
     let visAccum = 0;
     const requireVisible = this.cfg.requireVisible !== false;
-    const isHidden = () => requireVisible && typeof document !== "undefined" && document.hidden === true;
-    ctx.visibilityEnforced = requireVisible;
-    if (ctx.format === "rewarded") ctx.rewardVisibilityEnforced = requireVisible;
+    const isVideoCreative = c.type === "vast" && !!c.vastUrl;
+    const isHidden = () => (requireVisible || isVideoCreative) && typeof document !== "undefined" && document.hidden === true;
+    ctx.visibilityEnforced = requireVisible || isVideoCreative;
+    if (ctx.format === "rewarded") {
+      ctx.rewardVisibilityEnforced = isVideoCreative ? true : requireVisible;
+    }
     let visSince = hidden || isHidden() ? null : now();
     ctx._startVisible = () => {
       if (visSince === null && !isHidden()) visSince = now();
@@ -1234,16 +1248,96 @@ var W2ASDK = class {
       vid.setAttribute("playsinline", "");
       card.appendChild(vid);
       ctx.audio = wantAudio ? "requested" : "muted_by_config";
-      const sampleVideo = (playing = vid.paused !== true) => evidence.sample({
-        mediaSec: vid.currentTime,
-        wallMs: now(),
-        rate: Number.isFinite(Number(vid.playbackRate)) ? Number(vid.playbackRate) : 1,
-        playing,
-        // `visSince !== null` is exactly "the ad is activated AND on screen" -
-        // a preloaded overlay sits in the DOM with the clock stopped, so it
-        // cannot bank attention before the game has shown it.
-        visible: visSince !== null
+      const cfgMs = (value, fallback) => {
+        const n = Number(value);
+        return Number.isFinite(n) && n >= 0 ? n : fallback;
+      };
+      const videoRewardMs = cfgMs(this.cfg.videoRewardMs, 3e4);
+      const videoStartTimeoutMs = cfgMs(this.cfg.videoStartTimeoutMs, 1e4);
+      const videoStallTimeoutMs = cfgMs(this.cfg.videoStallTimeoutMs, 1e4);
+      const videoBillableMs = cfgMs(this.cfg.billableMs, 1e3);
+      const fullRewardRatio = 0.98;
+      const declaredDurationMs = cfgMs(c.durationMs, 0);
+      const metadataDurationMs = () => {
+        const d = Number(vid.duration) * 1e3;
+        return Number.isFinite(d) && d > 0 ? d : 0;
+      };
+      const videoDurationMs = () => {
+        const d = metadataDurationMs();
+        if (d > 0) return d;
+        if (declaredDurationMs > 0) return declaredDurationMs;
+        const t = Number(vid.currentTime) * 1e3;
+        return Number.isFinite(t) && t > 0 ? t : null;
+      };
+      const gatedDurationMs = () => Math.max(
+        declaredDurationMs,
+        metadataDurationMs(),
+        ctx.format === "rewarded" ? videoRewardMs : 0
+      );
+      const absoluteVideoMs = () => Math.max(
+        cfgMs(this.cfg.maxVideoMs, 1e4),
+        videoStartTimeoutMs + gatedDurationMs() + videoStallTimeoutMs
+      );
+      let absoluteStartedAt = null;
+      let absoluteTimer = null;
+      const armAbsoluteDeadline = () => {
+        if (absoluteStartedAt === null || ctx.completed) return;
+        if (absoluteTimer !== null) {
+          dropTimer(absoluteTimer);
+          absoluteTimer = null;
+        }
+        const left = absoluteVideoMs() - (Date.now() - absoluteStartedAt);
+        if (left <= 0) {
+          this._finish(ctx, { state: "failed", reason: "vast_deadline" });
+          return;
+        }
+        const handle = setTimeout(() => {
+          if (absoluteTimer === handle) absoluteTimer = null;
+          dropTimer(handle);
+          armAbsoluteDeadline();
+        }, left);
+        absoluteTimer = pushTimer(handle);
+      };
+      whenActive(() => {
+        absoluteStartedAt = Date.now();
+        armAbsoluteDeadline();
       });
+      let hasAdvanced = false;
+      let lastAttentionMs = 0;
+      let lastAdvanceVisibleMs = null;
+      let rewardEligible = false;
+      let playbackEnded = false;
+      const videoIsHidden = () => typeof document !== "undefined" && document.hidden === true;
+      const observeVideoProgress = () => {
+        const progress = evidence.verdict(videoDurationMs());
+        if (progress.attentionMs > lastAttentionMs) {
+          hasAdvanced = true;
+          lastAttentionMs = progress.attentionMs;
+          lastAdvanceVisibleMs = visibleMs();
+        }
+        const advancingMs = Math.min(progress.coverageMs, progress.attentionMs);
+        if (hasAdvanced && advancingMs >= videoBillableMs) qualify();
+        if (ctx.format === "rewarded" && !rewardEligible && hasAdvanced && advancingMs >= videoRewardMs) {
+          rewardEligible = true;
+          recordVideoEvidence(progress);
+          const full = progress.coverageRatio != null && progress.attentionRatio != null && progress.coverageRatio >= fullRewardRatio && progress.attentionRatio >= fullRewardRatio;
+          grantReward({ rewardBasis: "watched_video", rewardQuality: full ? "full" : "threshold" });
+        }
+        return progress;
+      };
+      const sampleVideo = (playing = vid.paused !== true) => {
+        evidence.sample({
+          mediaSec: vid.currentTime,
+          wallMs: now(),
+          rate: Number.isFinite(Number(vid.playbackRate)) ? Number(vid.playbackRate) : 1,
+          playing,
+          // `visSince !== null` is exactly "the ad is activated AND on screen" -
+          // a preloaded overlay sits in the DOM with the clock stopped, so it
+          // cannot bank attention before the game has shown it.
+          visible: visSince !== null && !videoIsHidden()
+        });
+        return observeVideoProgress();
+      };
       const endEpoch = (creditTail) => {
         if (creditTail) sampleVideo(true);
         evidence.break();
@@ -1273,7 +1367,7 @@ var W2ASDK = class {
       let startPlayback = null;
       onVisibilityChange = () => {
         endEpoch(true);
-        if (isHidden()) {
+        if (videoIsHidden()) {
           if (!vid.paused) {
             pausedByHide = true;
             try {
@@ -1307,19 +1401,18 @@ var W2ASDK = class {
         }
       };
       backdrop.addEventListener("pointerdown", () => {
-        if (pausedByHide && vid.paused && vid.ended !== true && !isHidden()) resumePlayback();
+        if (pausedByHide && vid.paused && vid.ended !== true && !videoIsHidden()) resumePlayback();
       }, { capture: true, passive: true });
-      const videoDurationMs = () => {
-        const d = Number(vid.duration) * 1e3;
-        if (Number.isFinite(d) && d > 0) return d;
-        const t = Number(vid.currentTime) * 1e3;
-        return Number.isFinite(t) && t > 0 ? t : null;
-      };
       const settleVideoReward = () => {
         const v = evidence.verdict(videoDurationMs());
         recordVideoEvidence(v);
-        if (v.earned) grantReward({ rewardBasis: "watched_video", rewardQuality: v.quality });
-        else if (!rewardEarned && ctx.format === "rewarded") ctx.rewardQuality = "not_earned";
+        const fullNaturalWatch = v.endedSeen === true && vid.ended === true && v.durationMs != null && v.durationMs >= videoRewardMs && v.coverageRatio != null && v.coverageRatio >= fullRewardRatio && v.attentionRatio != null && v.attentionRatio >= fullRewardRatio;
+        if (!rewardEarned && ctx.format === "rewarded" && fullNaturalWatch) {
+          rewardEligible = true;
+          grantReward({ rewardBasis: "watched_video", rewardQuality: "full" });
+        }
+        if (!rewardEarned && ctx.format === "rewarded") ctx.rewardQuality = "not_earned";
+        return v;
       };
       teardown.rewardSnapshot = () => {
         endEpoch(true);
@@ -1356,11 +1449,32 @@ var W2ASDK = class {
         } catch {
         }
       };
+      let completeTrackers = [];
+      let completionTracked = false;
+      const fireCompletionTrackers = () => {
+        if (completionTracked) return;
+        completionTracked = true;
+        for (const tracker of completeTrackers) {
+          try {
+            const p = fetch(src(tracker), {
+              method: "GET",
+              mode: "no-cors",
+              credentials: "omit",
+              keepalive: true,
+              cache: "no-store"
+            });
+            if (p && p.catch) p.catch(() => {
+            });
+          } catch {
+          }
+        }
+      };
       fetch(src(c.vastUrl), { signal: creativeAbort.signal }).then((r) => {
         if (!r || !r.ok) throw new Error("vast_http");
         return r.text();
       }).then((xml) => {
         const doc = new DOMParser().parseFromString(xml, "application/xml");
+        completeTrackers = [...doc.querySelectorAll('Tracking[event="complete"]')].map((node) => String(node.textContent || "").trim()).filter(Boolean);
         const murl = pickMediaFile(doc.querySelectorAll("MediaFile"), viewportRatio());
         if (!murl) {
           loadFailed("vast_no_media");
@@ -1368,7 +1482,7 @@ var W2ASDK = class {
         }
         let audioSettled = false;
         const tryPlay = () => whenActive(() => {
-          if (isHidden()) {
+          if (videoIsHidden()) {
             pausedByHide = true;
             return;
           }
@@ -1393,26 +1507,46 @@ var W2ASDK = class {
         tryPlay();
       }).catch(() => loadFailed("vast_fetch_failed"));
       vid.addEventListener("ended", () => {
+        if (ctx.completed || vid.ended !== true) return;
         endEpoch(true);
         evidence.end();
-        try {
-          qualify();
-        } catch {
-        }
+        playbackEnded = true;
+        fireCompletionTrackers();
         settleVideoReward();
+        backdrop.setAttribute("data-phase", "endcard");
       });
       vid.addEventListener("loadedmetadata", () => {
         const b = ratioBucket(vid.videoWidth, vid.videoHeight);
         if (b) backdrop.setAttribute("data-ratio", b);
+        armAbsoluteDeadline();
       });
-      vid.addEventListener("ended", () => backdrop.setAttribute("data-phase", "endcard"));
       vid.addEventListener("playing", () => {
         videoStarted = true;
         if (ctx.audio !== "muted_by_config") ctx.audio = vid.muted ? "muted_by_policy" : "audible";
       }, { once: true });
-      afterVisibleMs(this.cfg.maxVideoMs, () => {
-        if (videoStarted) qualify();
-        else this._finish(ctx, { state: "failed", reason: "vast_never_played" });
+      afterVisibleMs(videoStartTimeoutMs, () => {
+        sampleVideo();
+        if (!hasAdvanced) this._finish(ctx, { state: "failed", reason: "vast_never_advanced" });
+      });
+      whenActive(() => {
+        const periodMs = Math.max(10, Math.min(250, Math.max(10, videoStallTimeoutMs / 4)));
+        const stallTimer = setInterval(() => {
+          if (ctx.completed) {
+            clearInterval(stallTimer);
+            return;
+          }
+          if (playbackEnded || vid.ended === true) {
+            clearInterval(stallTimer);
+            return;
+          }
+          if (!hasAdvanced || lastAdvanceVisibleMs === null) return;
+          sampleVideo();
+          if (visibleMs() - lastAdvanceVisibleMs >= videoStallTimeoutMs) {
+            clearInterval(stallTimer);
+            this._finish(ctx, { state: "failed", reason: "vast_stalled" });
+          }
+        }, periodMs);
+        pushTimer(stallTimer);
       });
     } else if (c.type === "playable" && c.url) {
       backdrop.setAttribute("data-kind", "playable");
@@ -1475,6 +1609,11 @@ var W2ASDK = class {
       loaded();
       afterVisibleMs(this.cfg.billableMs, qualify);
     }
+    const closedEvent = (extra = {}) => ({
+      state: "closed",
+      ...ctx.format === "rewarded" && rewardPath === "video" && !rewardEarned ? { reason: "closed_before_reward" } : {},
+      ...extra
+    });
     cta.addEventListener("click", (e) => {
       if (clickState !== "READY") {
         e.preventDefault();
@@ -1486,15 +1625,14 @@ var W2ASDK = class {
       }
       clickState = "CLICKED";
       cta.style.pointerEvents = "none";
-      this._finish(ctx, {
+      this._finish(ctx, closedEvent({
         // impression fields come from ctx (single source of truth for all
         // terminal paths); repeating them here is how they drifted apart before
-        state: "closed",
         clicked: true,
         // `visibilityEnforced` now rides on ctx for every exit, not just this one
         ...e.isTrusted ? {} : { synthetic: true }
         // синтетика помечается явно
-      });
+      }));
     });
     if (ctx.format === "rewarded") {
       const wanted = Number(this.cfg.rewardSecs);
@@ -1515,6 +1653,12 @@ var W2ASDK = class {
       };
       if (byDwell) teardown.rewardSnapshot = grantDwell;
       whenActive(() => {
+        if (!byDwell) {
+          const configured = Number(this.cfg.videoRewardMs);
+          const seconds = Math.ceil((Number.isFinite(configured) && configured >= 0 ? configured : 3e4) / 1e3);
+          rewardBtn.textContent = `Watch ${seconds} seconds to earn reward`;
+          return;
+        }
         rewardBtn.textContent = `Reward in ${Math.ceil(floorMs / 1e3)}s\u2026`;
         const t = setInterval(() => {
           if (rewardEarned || ctx.completed) {
@@ -1527,20 +1671,13 @@ var W2ASDK = class {
             return;
           }
           clearInterval(t);
-          if (byDwell) {
-            if (!grantDwell()) rewardBtn.textContent = "Ad did not load";
-            return;
-          }
-          rewardBtn.textContent = "Watch to the end to claim";
-          rewardBtn.onclick = () => {
-            if (rewardEarned) this._finish(ctx, { state: "closed" });
-          };
+          if (!grantDwell()) rewardBtn.textContent = "Ad did not load";
         }, 250);
         pushTimer(t);
       });
     }
     close.addEventListener("click", () => {
-      if (closeArmed) this._finish(ctx, { state: "closed" });
+      if (closeArmed) this._finish(ctx, closedEvent());
     });
   }
   /**
@@ -1716,6 +1853,10 @@ var W2ASDK = class {
         } catch {
         }
       }
+    }
+    if (ev && ev.reason === "closed_before_reward" && ctx.rewardEarned === true) {
+      ev = { ...ev };
+      delete ev.reason;
     }
     ctx.completed = true;
     if (teardown && teardown.releaseUnbilled) {

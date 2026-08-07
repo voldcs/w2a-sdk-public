@@ -1,18 +1,18 @@
 {
-  "version": "0.1.2",
-  "coreCommit": "ffb4b3e9c34d1ad784b606f56b75ccf479425b69",
-  "sourceSha256": "c976eec20c42f03385bedc35f805f111ced8430140151dfba7c29745397ead32",
-  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.2/dist/w2a-sdk.min.js",
+  "version": "0.1.3",
+  "coreCommit": "bb6d6019d33691b8e606648f3459c3f4dc274e34",
+  "sourceSha256": "3930be1abe2f8e26b823faeed94faff84c606655bbd99c6f2250aedd404b0814",
+  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.3/dist/w2a-sdk.min.js",
   "artifacts": {
     "dist/w2a-sdk.esm.js": {
-      "sha256": "33658953ddaca7314ef5a9eceb725856c8699e31f9a44ea65e683fe027389747"
+      "sha256": "dc338e775b67d0d025de026fa128dc7986aa76604f7b5d3bb23d435f7dbaa5a9"
     },
     "dist/w2a-sdk.iife.js": {
-      "sha256": "f62a2a2b1d569b7a8637f529cf337163fdaa5af9e93e7f1cde3bd7b3e860314a"
+      "sha256": "f7589fcb7327324c273d3342a411e01a9842006fc940350bd20488ad1b3f6b5a"
     },
     "dist/w2a-sdk.min.js": {
-      "sha256": "54b1f4ff5c8772eb6d1a823864be82f4d581b403256b1bdaa991301947deaaf9",
-      "sri": "sha384-hjIGMxdPXn5EpkW8GQQYQbZGtXyQiRPOracEw/YA+ZidgTAAV+nFy8omWwM4ONY0"
+      "sha256": "d97718624cd29d10bc21d5afd082587dd0c4db38813a16f73fe61723e22a5126",
+      "sri": "sha384-DEz0fmD3teaatXYvlwDAleeFodVLQQEApHEl/8tDKkgEoI1NhHMCRxlHP4t6I9uf"
     }
   }
 }

@@ -465,8 +465,10 @@ function publicEventDto(data) {
  * `playbackRate = 16` and wait two seconds. Both fire a perfectly genuine
  * `ended`, and both used to pay out in full.
  *
- * So completion stays a NECESSARY condition and two measurements are added
- * beside it:
+ * The runtime gate now latches when min(coverage, attention) reaches
+ * videoRewardMs. Natural `ended` remains separate: it marks VAST completion and
+ * the exported legacy ratio verdict, but is not required for the publisher's
+ * 30-second eligibility latch. The two measurements are:
  *
  *   coverage  - the UNION of the media intervals that were played through. A
  *               union, not a running sum of deltas: watching the same ten
@@ -647,7 +649,12 @@ class W2ASDK {
 
   init(cfg) {
     this.cfg = Object.assign(
-      { backend: '', publisherId: 'demo-pub', gameId: 'block-blitz', cell: 'matched', siteId: 'demo', creativeFormat: 'image', billableMs: 1000, rewardSecs: 5, requestTimeoutMs: 4000, maxVideoMs: 10000, maxPlayableMs: 20000, minVisibleBeforeClickMs: 1000, requireVisible: true, preloadTtlMs: 30000,
+      { backend: '', publisherId: 'demo-pub', gameId: 'block-blitz', cell: 'matched', siteId: 'demo', creativeFormat: 'image', billableMs: 1000, rewardSecs: 5, requestTimeoutMs: 4000,
+        // Video has separate clocks. maxVideoMs is retained as the legacy total
+        // deadline from activation, never as an allowance added to the film.
+        videoRewardMs: 30000, videoStartTimeoutMs: 10000, videoStallTimeoutMs: 10000,
+        maxVideoMs: 10000, maxPlayableMs: 20000,
+        minVisibleBeforeClickMs: 1000, requireVisible: true, preloadTtlMs: 30000,
         // 'auto' asks for sound and falls back to muted if the browser refuses.
         // 'muted' is for publishers whose own game audio must keep playing.
         audio: 'auto' },
@@ -865,7 +872,21 @@ class W2ASDK {
     //  - the server's reservation, minus the time a SHOW still needs afterwards
     //    (watch the creative, then commit the impression). Ignoring the second
     //    produced ads that looked ready and then failed to bill on commit.
-    const showBudgetMs = Math.max(this.cfg.billableMs || 0, this.cfg.maxVideoMs || 0, this.cfg.maxPlayableMs || 0)
+    // The reservation protects the advertiser's impression, not the publisher's
+    // reward. For video it only has to survive genuine startup, one billable
+    // stretch of advancing media, and the impression request. Making it survive
+    // the whole 30-second reward plus a legacy maxVideoMs rejected usable ads
+    // before their VAST document was even fetched.
+    // This is deliberately clean-path headroom, not a guarantee across arbitrary
+    // recoverable stalls. A late commit still receives the server's real verdict
+    // and is reported degraded rather than being called confirmed.
+    let creativeShowBudgetMs = Math.max(0, Number(this.cfg.billableMs) || 0)
+    if (resp.creative.type === 'vast') {
+      creativeShowBudgetMs += Math.max(0, Number(this.cfg.videoStartTimeoutMs) || 0)
+    } else if (resp.creative.type === 'playable') {
+      creativeShowBudgetMs = Math.max(0, Number(this.cfg.maxPlayableMs) || 0)
+    }
+    const showBudgetMs = creativeShowBudgetMs
       + (this.cfg.requestTimeoutMs || 4000) + 2000 // + clock skew allowance
     const ttlBound = Date.now() + (this.cfg.preloadTtlMs || 30000)
     const leaseBound = resp.reservationExpiresAt ? (resp.reservationExpiresAt - showBudgetMs) : Infinity
@@ -1103,7 +1124,7 @@ class W2ASDK {
       background: 'transparent', border: '1px solid #4b5163', color: '#c7ccdd',
       padding: '10px 18px', borderRadius: '10px', fontSize: '14px', marginTop: '4px',
       cursor: 'pointer', display: ctx.format === 'rewarded' ? 'block' : 'none',
-    }, { textContent: ctx.format === 'rewarded' ? `Reward in ${this.cfg.rewardSecs}s…` : '' })
+    }, { textContent: ctx.format === 'rewarded' ? 'Watch to earn reward' : '' })
     rewardBtn.setAttribute('data-w2a', 'reward')
 
     // The reward gate lives in this closure, not on `ctx`.
@@ -1278,9 +1299,9 @@ class W2ASDK {
       this._state({ ...ctx, state: 'opened' })
     }
 
-    // qualified impression -> шлём impression и разгейтим CTA (confirmed).
-    // Триггер "qualified" зависит от формата: image = billableMs; vast = video
-    // ended (или maxVideoMs); playable = сигнал 'complete' от креатива.
+    // Qualified impression is independent from reward and VAST completion.
+    // Image and playable count visible time after load; VAST counts billableMs
+    // of credible advancing playback.
     // shownMs must measure how long the player saw the ad, not how long ago we
     // preloaded it. Stamped at activation for that reason.
     ctx.impStart = ctx.impStart || Date.now()
@@ -1323,17 +1344,26 @@ class W2ASDK {
     // an integrator can opt out - and we record that fact on the terminal event
     // instead of pretending visibility was verified.
     const requireVisible = this.cfg.requireVisible !== false
-    const isHidden = () => requireVisible && typeof document !== 'undefined' && document.hidden === true
+    const isVideoCreative = c.type === 'vast' && !!c.vastUrl
+    // A host may opt dwell formats out when its webview misreports visibility.
+    // Video cannot opt out: hidden advancing media is the reward and billing
+    // currency, so its foreground clocks must stop with the tab.
+    const isHidden = () => (requireVisible || isVideoCreative) &&
+      typeof document !== 'undefined' && document.hidden === true
     // Reported on EVERY exit, not only on a click-out. It used to be attached in
     // the CTA handler alone, so an ad closed with the × reported nothing and a
     // partner could not tell an unverified-dwell show from a verified one unless
     // the player happened to tap Install.
-    ctx.visibilityEnforced = requireVisible
-    // The same opt-out weakens the reward gate: with it off, time in a
-    // background tab counts as attention. It is the publisher's own currency, so
-    // the switch is honoured rather than overridden - but it is REPORTED, so a
-    // partner reading the terminal event can see the gate was not enforced.
-    if (ctx.format === 'rewarded') ctx.rewardVisibilityEnforced = requireVisible
+    ctx.visibilityEnforced = requireVisible || isVideoCreative
+    // The same opt-out weakens dwell-format rewards and is therefore reported.
+    // Video is different: advancing media is the reward currency, so hidden-tab
+    // playback is excluded unconditionally inside the VAST branch below.
+    if (ctx.format === 'rewarded') {
+      // Video has an unconditional hidden-tab exclusion because its advancing
+      // media clock is the reward currency. The opt-out remains available only
+      // to dwell formats whose host webview misreports document.hidden.
+      ctx.rewardVisibilityEnforced = isVideoCreative ? true : requireVisible
+    }
     // null (not 0) means "currently hidden": now() can legitimately BE 0 at the
     // start of a session, and a falsy check would freeze the dwell at zero.
     // A PRELOADED overlay is in the DOM but invisible, so its dwell clock must
@@ -1617,21 +1647,115 @@ class W2ASDK {
       card.appendChild(vid)
       ctx.audio = wantAudio ? 'requested' : 'muted_by_config'
 
-      // --- reward evidence -------------------------------------------------
+      // --- independent video clocks ---------------------------------------
+      // requestTimeoutMs bounds the ad request before this renderer exists.
+      // These four clocks start only once the ad is activated:
+      //   start     - waits for credible media-time advance, not `playing`
+      //   stall     - resets on each credible advance
+      //   billable  - one stretch of credible advancing playback
+      //   reward    - 30 seconds of credible advancing playback
+      // maxVideoMs is the legacy absolute wall deadline for the whole visible
+      // show. It is a total, never an allowance added to the creative duration.
+      const cfgMs = (value, fallback) => {
+        const n = Number(value)
+        return Number.isFinite(n) && n >= 0 ? n : fallback
+      }
+      const videoRewardMs = cfgMs(this.cfg.videoRewardMs, 30000)
+      const videoStartTimeoutMs = cfgMs(this.cfg.videoStartTimeoutMs, 10000)
+      const videoStallTimeoutMs = cfgMs(this.cfg.videoStallTimeoutMs, 10000)
+      const videoBillableMs = cfgMs(this.cfg.billableMs, 1000)
+      const fullRewardRatio = 0.98
+      const declaredDurationMs = cfgMs(c.durationMs, 0)
+      const metadataDurationMs = () => {
+        const d = Number(vid.duration) * 1000
+        return Number.isFinite(d) && d > 0 ? d : 0
+      }
+      const videoDurationMs = () => {
+        const d = metadataDurationMs()
+        if (d > 0) return d
+        if (declaredDurationMs > 0) return declaredDurationMs
+        const t = Number(vid.currentTime) * 1000
+        return Number.isFinite(t) && t > 0 ? t : null
+      }
+      const gatedDurationMs = () => Math.max(
+        declaredDurationMs,
+        metadataDurationMs(),
+        ctx.format === 'rewarded' ? videoRewardMs : 0,
+      )
+      const absoluteVideoMs = () => Math.max(
+        cfgMs(this.cfg.maxVideoMs, 10000),
+        videoStartTimeoutMs + gatedDurationMs() + videoStallTimeoutMs,
+      )
+      // Metadata can reveal a longer film than the response declared. Keep one
+      // absolute timer and re-arm it from the original activation boundary when
+      // better duration evidence arrives. A stream with no declared or metadata
+      // duration cannot move the backstop with its advancing currentTime.
+      let absoluteStartedAt = null
+      let absoluteTimer = null
+      const armAbsoluteDeadline = () => {
+        if (absoluteStartedAt === null || ctx.completed) return
+        if (absoluteTimer !== null) { dropTimer(absoluteTimer); absoluteTimer = null }
+        const left = absoluteVideoMs() - (Date.now() - absoluteStartedAt)
+        if (left <= 0) { this._finish(ctx, { state: 'failed', reason: 'vast_deadline' }); return }
+        const handle = setTimeout(() => {
+          if (absoluteTimer === handle) absoluteTimer = null
+          dropTimer(handle)
+          armAbsoluteDeadline()
+        }, left)
+        absoluteTimer = pushTimer(handle)
+      }
+      whenActive(() => {
+        absoluteStartedAt = Date.now()
+        armAbsoluteDeadline()
+      })
+
+      // --- reward and billing evidence ------------------------------------
+      let hasAdvanced = false
+      let lastAttentionMs = 0
+      let lastAdvanceVisibleMs = null
+      let rewardEligible = false
+      let playbackEnded = false
+      // Rewarded video always excludes hidden-tab playback, even when a host has
+      // disabled the dwell-format visibility guard for a misreporting webview.
+      const videoIsHidden = () => typeof document !== 'undefined' && document.hidden === true
+      const observeVideoProgress = () => {
+        const progress = evidence.verdict(videoDurationMs())
+        if (progress.attentionMs > lastAttentionMs) {
+          hasAdvanced = true
+          lastAttentionMs = progress.attentionMs
+          lastAdvanceVisibleMs = visibleMs()
+        }
+        // Both measurements must clear the gate. Attention alone can be bought
+        // by replaying one short stretch; coverage alone can be bought by fast
+        // playback. Their minimum is credible advancing playback of new film.
+        const advancingMs = Math.min(progress.coverageMs, progress.attentionMs)
+        if (hasAdvanced && advancingMs >= videoBillableMs) qualify()
+        if (ctx.format === 'rewarded' && !rewardEligible && hasAdvanced && advancingMs >= videoRewardMs) {
+          rewardEligible = true
+          recordVideoEvidence(progress)
+          const full = progress.coverageRatio != null && progress.attentionRatio != null &&
+            progress.coverageRatio >= fullRewardRatio && progress.attentionRatio >= fullRewardRatio
+          grantReward({ rewardBasis: 'watched_video', rewardQuality: full ? 'full' : 'threshold' })
+        }
+        return progress
+      }
       // One observation of the element, taken on `timeupdate` and on every event
       // that ENDS a playback epoch. Closing the epoch matters as much as opening
       // it: an unclosed segment is simply never counted, so a video that ends
       // between two timeupdates would lose its tail.
-      const sampleVideo = (playing = vid.paused !== true) => evidence.sample({
-        mediaSec: vid.currentTime,
-        wallMs: now(),
-        rate: Number.isFinite(Number(vid.playbackRate)) ? Number(vid.playbackRate) : 1,
-        playing,
-        // `visSince !== null` is exactly "the ad is activated AND on screen" -
-        // a preloaded overlay sits in the DOM with the clock stopped, so it
-        // cannot bank attention before the game has shown it.
-        visible: visSince !== null,
-      })
+      const sampleVideo = (playing = vid.paused !== true) => {
+        evidence.sample({
+          mediaSec: vid.currentTime,
+          wallMs: now(),
+          rate: Number.isFinite(Number(vid.playbackRate)) ? Number(vid.playbackRate) : 1,
+          playing,
+          // `visSince !== null` is exactly "the ad is activated AND on screen" -
+          // a preloaded overlay sits in the DOM with the clock stopped, so it
+          // cannot bank attention before the game has shown it.
+          visible: visSince !== null && !videoIsHidden(),
+        })
+        return observeVideoProgress()
+      }
       // Which events merely OBSERVE playback, and which END it.
       //
       // Reading `vid.paused` is not enough to tell them apart, and that was the
@@ -1685,7 +1809,7 @@ class W2ASDK {
         // out the tail is still credited as on-screen, and on the way back in
         // the epoch is closed rather than bridged across the hidden stretch.
         endEpoch(true)
-        if (isHidden()) {
+        if (videoIsHidden()) {
           if (!vid.paused) { pausedByHide = true; try { vid.pause() } catch { /* nothing to pause */ } }
           return
         }
@@ -1727,21 +1851,28 @@ class W2ASDK {
         } catch { pausedByHide = true }
       }
       backdrop.addEventListener('pointerdown', () => {
-        if (pausedByHide && vid.paused && vid.ended !== true && !isHidden()) resumePlayback()
+        if (pausedByHide && vid.paused && vid.ended !== true && !videoIsHidden()) resumePlayback()
       }, { capture: true, passive: true })
-      // Metadata duration is preferred; a stream that never reports one is scored
-      // against where it actually stopped. Neither is invented.
-      const videoDurationMs = () => {
-        const d = Number(vid.duration) * 1000
-        if (Number.isFinite(d) && d > 0) return d
-        const t = Number(vid.currentTime) * 1000
-        return Number.isFinite(t) && t > 0 ? t : null
-      }
       const settleVideoReward = () => {
         const v = evidence.verdict(videoDurationMs())
         recordVideoEvidence(v)
-        if (v.earned) grantReward({ rewardBasis: 'watched_video', rewardQuality: v.quality })
-        else if (!rewardEarned && ctx.format === 'rewarded') ctx.rewardQuality = 'not_earned'
+        // A browser does not promise a sample at media time zero. On the exact
+        // 30-second master, real Chrome can naturally end with 99% credible
+        // evidence while the raw accumulator is a few hundred milliseconds shy
+        // of 30000. Natural end is not sufficient by itself: require the media
+        // duration to reach the gate and both evidence ratios to meet the same
+        // full-watch floor used for reporting. Seek, fast-rate and hidden plays
+        // remain below that floor and earn nothing.
+        const fullNaturalWatch = v.endedSeen === true && vid.ended === true &&
+          v.durationMs != null && v.durationMs >= videoRewardMs &&
+          v.coverageRatio != null && v.coverageRatio >= fullRewardRatio &&
+          v.attentionRatio != null && v.attentionRatio >= fullRewardRatio
+        if (!rewardEarned && ctx.format === 'rewarded' && fullNaturalWatch) {
+          rewardEligible = true
+          grantReward({ rewardBasis: 'watched_video', rewardQuality: 'full' })
+        }
+        if (!rewardEarned && ctx.format === 'rewarded') ctx.rewardQuality = 'not_earned'
+        return v
       }
       // Read the evidence one last time on the way out, whatever the exit was.
       // Two things depend on it. A player who closes early would otherwise leave
@@ -1800,11 +1931,29 @@ class W2ASDK {
       // creative for an ad the game will never see.
       const creativeAbort = new AbortController()
       teardown.abortCreative = () => { try { creativeAbort.abort() } catch { /* already settled */ } }
+      let completeTrackers = []
+      let completionTracked = false
+      const fireCompletionTrackers = () => {
+        if (completionTracked) return
+        completionTracked = true
+        for (const tracker of completeTrackers) {
+          try {
+            const p = fetch(src(tracker), {
+              method: 'GET', mode: 'no-cors', credentials: 'omit',
+              keepalive: true, cache: 'no-store',
+            })
+            if (p && p.catch) p.catch(() => {})
+          } catch { /* a tracker cannot break the player's terminal */ }
+        }
+      }
       fetch(src(c.vastUrl), { signal: creativeAbort.signal }).then((r) => {
         if (!r || !r.ok) throw new Error('vast_http')
         return r.text()
       }).then((xml) => {
         const doc = new DOMParser().parseFromString(xml, 'application/xml')
+        completeTrackers = [...doc.querySelectorAll('Tracking[event="complete"]')]
+          .map((node) => String(node.textContent || '').trim())
+          .filter(Boolean)
         const murl = pickMediaFile(doc.querySelectorAll('MediaFile'), viewportRatio())
         // A VAST document with no playable MediaFile is a BROKEN creative, not a
         // finished view. Qualifying here billed the advertiser for an ad nobody saw.
@@ -1827,7 +1976,7 @@ class W2ASDK {
           // hidden before we existed - so the pause-on-hide path never sees it,
           // and unlike a mid-show hide the burnt stretch could never be given
           // back. Defer to the same resume path instead.
-          if (isHidden()) { pausedByHide = true; return }
+          if (videoIsHidden()) { pausedByHide = true; return }
           const p = vid.play()
           if (!p || !p.catch) return
           p.catch((err) => {
@@ -1853,28 +2002,34 @@ class W2ASDK {
         tryPlay()
       }).catch(() => loadFailed('vast_fetch_failed'))
       vid.addEventListener('ended', () => {
+        // An `ended` event is scriptable, and the element can still dispatch one
+        // after the show has already closed. VAST complete means the media
+        // element itself reached its natural end during this active show.
+        if (ctx.completed || vid.ended !== true) return
         // `paused` is already true here, so the tail has to be credited
         // explicitly or the last stretch before the end is silently lost.
         endEpoch(true)
         evidence.end()
-        // Billing and reward are separate verdicts about separate money, and a
-        // throw in one used to take the other with it: `qualify(); maybeReward()`
-        // on one line means an impression error silently costs the player a
-        // reward they had earned.
-        try { qualify() } catch { /* the impression path reports its own failure */ }
+        playbackEnded = true
+        // Completion tracking is independent from the publisher reward latch.
+        // A close after 30 seconds can keep its reward without pretending the
+        // VAST player emitted a natural completion, while a real ended fires
+        // every non-empty complete tracker exactly once.
+        fireCompletionTrackers()
         settleVideoReward()
+        backdrop.setAttribute('data-phase', 'endcard')
       })
-      // Safety timer: only a video that actually STARTED can be qualified by
-      // timeout. One that never played is an error - it must fall back, not bill.
+      // Metadata changes presentation only. Billing and watchdog cancellation
+      // require credible advancing media samples below.
       vid.addEventListener('loadedmetadata', () => {
         const b = ratioBucket(vid.videoWidth, vid.videoHeight)
         if (b) backdrop.setAttribute('data-ratio', b)
+        armAbsoluteDeadline()
       })
       // VAST treats the end card as the companion shown once the video stops. Ours
       // is baked into the last seconds of the film, so there is no second asset to
       // swap in - the phase flip is what brings the headline back and enlarges the
       // CTA over the frozen final frame.
-      vid.addEventListener('ended', () => backdrop.setAttribute('data-phase', 'endcard'))
       vid.addEventListener('playing', () => {
         videoStarted = true
         // Report what the player ACTUALLY got, not what we asked for. This is
@@ -1882,13 +2037,39 @@ class W2ASDK {
         // instead of an opinion, per placement and per device.
         if (ctx.audio !== 'muted_by_config') ctx.audio = vid.muted ? 'muted_by_policy' : 'audible'
       }, { once: true })
-      // Foreground time, like every other deadline. A watchdog measured in wall
-      // clock expired while the ad sat in a backgrounded tab and failed a show
-      // the player had not even seen yet.
-      afterVisibleMs(this.cfg.maxVideoMs, () => {
-        if (videoStarted) qualify()
-        else this._finish(ctx, { state: 'failed', reason: 'vast_never_played' })
+
+      // `playing` is an intention, not evidence: a browser can fire it and then
+      // leave currentTime at zero. Only a credible evidence step cancels start.
+      afterVisibleMs(videoStartTimeoutMs, () => {
+        // timeupdate is deliberately low-frequency and can be delayed behind the
+        // watchdog callback. Read the media clock at the decision boundary before
+        // declaring a film inert.
+        sampleVideo()
+        if (!hasAdvanced) this._finish(ctx, { state: 'failed', reason: 'vast_never_advanced' })
       })
+      // One resettable watchdog, not one timer per timeupdate. It compares the
+      // foreground clock with the last credible media advance, so a hidden tab
+      // pauses the budget and a seek cannot reset it.
+      whenActive(() => {
+        const periodMs = Math.max(10, Math.min(250, Math.max(10, videoStallTimeoutMs / 4)))
+        const stallTimer = setInterval(() => {
+          if (ctx.completed) { clearInterval(stallTimer); return }
+          if (playbackEnded || vid.ended === true) { clearInterval(stallTimer); return }
+          if (!hasAdvanced || lastAdvanceVisibleMs === null) return
+          // A genuine advance can precede its delayed timeupdate event. Sampling
+          // here keeps the watchdog tied to media state rather than event-loop
+          // scheduling.
+          sampleVideo()
+          if (visibleMs() - lastAdvanceVisibleMs >= videoStallTimeoutMs) {
+            clearInterval(stallTimer)
+            this._finish(ctx, { state: 'failed', reason: 'vast_stalled' })
+          }
+        }, periodMs)
+        pushTimer(stallTimer)
+      })
+      // Absolute is deliberately wall time. Foreground clocks stop for hidden
+      // tabs, but a server reservation and a host promise do not. The timer above
+      // remains a terminal backstop and is re-derived from actual metadata.
     } else if (c.type === 'playable' && c.url) {
       backdrop.setAttribute('data-kind', 'playable')
       const ifr = el('iframe', null, { className: 'w2a-frame' })
@@ -1996,6 +2177,14 @@ class W2ASDK {
       afterVisibleMs(this.cfg.billableMs, qualify)
     }
 
+    const closedEvent = (extra = {}) => ({
+      state: 'closed',
+      ...(ctx.format === 'rewarded' && rewardPath === 'video' && !rewardEarned
+        ? { reason: 'closed_before_reward' }
+        : {}),
+      ...extra,
+    })
+
     // клик по CTA: навигация синхронно (уже user-gesture), бэк логирует и 302.
     // Клик принимается ТОЛЬКО в состоянии READY и только как настоящий ввод.
     // isTrusted отсекает программный .click()/dispatchEvent (но не автоматизацию
@@ -2005,32 +2194,20 @@ class W2ASDK {
       if (!e.isTrusted && !this.cfg.allowSyntheticClicks) { e.preventDefault(); return }
       clickState = 'CLICKED'                 // one-shot: повторный тап уже не пройдёт
       cta.style.pointerEvents = 'none'
-      this._finish(ctx, {
+      this._finish(ctx, closedEvent({
         // impression fields come from ctx (single source of truth for all
         // terminal paths); repeating them here is how they drifted apart before
-        state: 'closed', clicked: true,
+        clicked: true,
         // `visibilityEnforced` now rides on ctx for every exit, not just this one
         ...(e.isTrusted ? {} : { synthetic: true }), // синтетика помечается явно
-      })
+      }))
     })
 
     // rewarded lifecycle (интервал очищается в _finish, иначе stale-эмит rewarded)
     // REWARD IS EARNED BY WATCHING, NOT BY WAITING.
     //
-    // This used to be a wall-clock countdown: after `rewardSecs` the reward was
-    // granted regardless of whether the creative had finished. Two problems.
-    // A player who backgrounds the tab earns it having seen nothing, and a
-    // creative longer than the countdown pays out before its end card - the
-    // frame that carries the call to action, and the reason an advertiser buys
-    // rewarded at all.
-    //
-    // Then completion stopped being enough on its own. `ended` is trivial to
-    // produce without watching - `currentTime = duration`, or `playbackRate = 16`
-    // for two seconds - and both used to pay in full. So a video is now scored on
-    // measured coverage and attention as well (see createRewardEvidence).
-    //
     // The gate per format:
-    //   video    - `ended` AND >=90% coverage AND >=90% visible attention
+    //   video    - 30 seconds of credible advancing coverage AND attention
     //   playable - visible dwell. Its `complete` comes from untrusted creative
     //              code, so it is reported and not trusted (see the handler).
     //   image    - has nothing to complete, so visible dwell is the only honest
@@ -2073,20 +2250,24 @@ class W2ASDK {
       }
       if (byDwell) teardown.rewardSnapshot = grantDwell
       whenActive(() => {
+        if (!byDwell) {
+          // rewardSecs belongs to dwell creatives. Showing that countdown on a
+          // video promised a payout several seconds into a 30-second film even
+          // though the real gate counts advancing media time independently.
+          const configured = Number(this.cfg.videoRewardMs)
+          const seconds = Math.ceil((Number.isFinite(configured) && configured >= 0 ? configured : 30000) / 1000)
+          rewardBtn.textContent = `Watch ${seconds} seconds to earn reward`
+          return
+        }
         rewardBtn.textContent = `Reward in ${Math.ceil(floorMs / 1000)}s…`
         const t = setInterval(() => {
           if (rewardEarned || ctx.completed) { clearInterval(t); return }
           const leftMs = floorMs - visibleMs()
           if (leftMs > 0) { rewardBtn.textContent = `Reward in ${Math.ceil(leftMs / 1000)}s…`; return }
           clearInterval(t)
-          if (byDwell) {
-            // A creative that never arrived is not something the player watched,
-            // however long the overlay sat on screen.
-            if (!grantDwell()) rewardBtn.textContent = 'Ad did not load'
-            return
-          }
-          rewardBtn.textContent = 'Watch to the end to claim'
-          rewardBtn.onclick = () => { if (rewardEarned) this._finish(ctx, { state: 'closed' }) }
+          // A creative that never arrived is not something the player watched,
+          // however long the overlay sat on screen.
+          if (!grantDwell()) rewardBtn.textContent = 'Ad did not load'
         }, 250)
         pushTimer(t)
       })
@@ -2094,7 +2275,7 @@ class W2ASDK {
     // `pointerEvents: none` is presentation, not a guard: a host stylesheet, a
     // synthetic event or an accessibility tool can still deliver the click. The
     // countdown is enforced here.
-    close.addEventListener('click', () => { if (closeArmed) this._finish(ctx, { state: 'closed' }) })
+    close.addEventListener('click', () => { if (closeArmed) this._finish(ctx, closedEvent()) })
   }
 
   /**
@@ -2308,6 +2489,14 @@ class W2ASDK {
       const snap = teardown.rewardSnapshot
       teardown.rewardSnapshot = null
       if (snap) { try { snap() } catch { /* evidence is worth less than a clean teardown */ } }
+    }
+    // The close may land between the last timeupdate and the exact 30-second
+    // boundary. rewardSnapshot closes that final playback epoch before this
+    // terminal is emitted; if it latches the reward, the pre-snapshot reason is
+    // no longer true and must not survive into the public event.
+    if (ev && ev.reason === 'closed_before_reward' && ctx.rewardEarned === true) {
+      ev = { ...ev }
+      delete ev.reason
     }
     ctx.completed = true
     // Hand back budget this show reserved and never spent. Guarded on `!qualified`

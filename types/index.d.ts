@@ -22,21 +22,31 @@ export interface W2AConfig {
   backend?: string
   publisherId?: string
   gameId?: string
-  /** requested creative format (bidder falls back to image) */
+  /** requested creative format. Interstitial may fall back to image; rewarded
+   *  requires a dedicated route for the requested format. */
   creativeFormat?: CreativeFormat
-  /** ms shown before an image is a qualified impression */
+  /** milliseconds before a qualified impression. Video counts credible
+   *  advancing playback; dwell formats count visible time after load. */
   billableMs?: number
   /** foreground seconds an image, text or playable ad must be on screen before
-   *  it pays. A VIDEO is not governed by this: it pays at its own natural end,
-   *  scored on how much of the film was actually watched. */
+   *  it pays. Video uses videoRewardMs and advancing media evidence instead. */
   rewardSecs?: number
-  /** count only foreground time towards dwell and attention. Default true; turn
-   *  it off only for webviews that misreport `document.hidden`, and expect
-   *  `visibilityEnforced: false` on the events that result. */
+  /** count only foreground time towards dwell. Default true; turn it off only
+   *  for webviews that misreport `document.hidden`, and expect
+   *  `visibilityEnforced: false`. Rewarded video always excludes hidden time. */
   requireVisible?: boolean
   /** seconds before the close control is offered */
   closeAfterSecs?: number
   requestTimeoutMs?: number
+  /** advancing video milliseconds required for a rewarded video. Default 30000. */
+  videoRewardMs?: number
+  /** visible time allowed before media time first advances. Default 10000. */
+  videoStartTimeoutMs?: number
+  /** visible time allowed without another credible media advance. Default 10000. */
+  videoStallTimeoutMs?: number
+  /** Legacy absolute wall-clock deadline for one visible VAST show. The SDK
+   *  raises values that are shorter than startup + creative/reward + stall;
+   *  this value is a total and is never added to the creative duration. */
   maxVideoMs?: number
   maxPlayableMs?: number
   /** ignore CTA taps within this window after un-gate (anti-misclick) */
@@ -49,8 +59,8 @@ export interface W2AConfig {
 
 /** How a reward was arrived at. `visible_dwell` is a policy, not proof. */
 export type RewardBasis = 'watched_video' | 'visible_dwell'
-/** `full` >= 98% watched, `threshold` cleared the 90% policy with less, and
- *  `dwell_only` means nothing was watched - the ad was merely on screen. */
+/** `full` >= 98% watched, `threshold` cleared the advancing-playback gate with
+ *  less than a full view, and `dwell_only` means nothing was watched. */
 export type RewardQuality = 'full' | 'threshold' | 'dwell_only' | 'not_earned'
 
 /**
@@ -85,7 +95,8 @@ export interface AdStateEvent {
   clicked?: boolean
   /** the click was not a trusted user event */
   synthetic?: boolean
-  /** false when `requireVisible` was switched off, so dwell was not verified */
+  /** whether this format enforced foreground visibility. VAST always does;
+   *  dwell formats follow `requireVisible`. */
   visibilityEnforced?: boolean
 
   /** what the player actually got, not what was requested */
@@ -101,7 +112,7 @@ export interface AdStateEvent {
   rewardEarned?: boolean
   rewardBasis?: RewardBasis
   rewardQuality?: RewardQuality
-  /** false when `requireVisible` was off, so attention was not enforced either */
+  /** true for VAST video; dwell formats follow `requireVisible` */
   rewardVisibilityEnforced?: boolean
   /** the creative reported completion; reported, never trusted, never paid on */
   playableCompleteSeen?: boolean
@@ -120,8 +131,11 @@ export interface AdStateEvent {
   rewardMaxRate?: number
 }
 
-/** The reward measurement, exported so a mediation layer can score its own
- *  player the same way. Pure: timestamps in, verdict out. */
+/** Pure video evidence summary. `earned` is the legacy ended-plus-ratio verdict.
+ *  The SDK's live reward gate instead compares
+ *  `min(coverageMs, attentionMs)` with `videoRewardMs`, so it can latch before
+ *  natural completion while using the same evidence. An exact-duration video
+ *  may also latch at natural end when both evidence ratios reach 0.98. */
 export interface RewardVerdict {
   earned: boolean
   quality: RewardQuality
