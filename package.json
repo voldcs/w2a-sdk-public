@@ -18,11 +18,16 @@
     "dist",
     "types",
     "README.md",
+    "INTEGRATION.md",
+    "LICENSE",
     "release.json"
   ],
   "scripts": {
-    "build": "SHA=$(shasum -a 256 src/index.js | cut -d' ' -f1) && npx --yes esbuild src/index.js --bundle --format=esm --banner:js=\"/* w2a-src-sha256:$SHA */\" --outfile=dist/w2a-sdk.esm.js && npx --yes esbuild src/index.js --bundle --format=iife --global-name=W2ANS --minify --banner:js=\"/* w2a-src-sha256:$SHA */\" --outfile=dist/w2a-sdk.min.js && npx --yes esbuild src/index.js --bundle --format=iife --global-name=W2ANS --banner:js=\"/* w2a-src-sha256:$SHA */\" --outfile=dist/w2a-sdk.iife.js",
+    "build": "node build.mjs",
     "test": "node --test"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
   },
   "sideEffects": true,
   "license": "MIT",
