@@ -10,6 +10,7 @@
 // with the commit under test.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, extname } from 'node:path'
@@ -19,6 +20,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // The single canonical address, and the hosts that must never be configured again.
 const CANONICAL = 'https://w2a-ads-demo.azurewebsites.net'
 const RETIRED = ['w2a-demo.onrender.com']
+
+async function sha(algorithm, path) {
+  const bytes = await readFile(path)
+  return createHash(algorithm).update(bytes).digest('hex')
+}
 
 async function docs(dir = ROOT, acc = []) {
   for (const e of await readdir(dir, { withFileTypes: true })) {
@@ -77,4 +83,47 @@ test('the postback contract names every field an integrator must set', async () 
   for (const required of ['POST', 'X-W2A-Postback', 'af_sub1', 'event_name']) {
     assert.ok(t.includes(required), `INTEGRATION.md must specify ${required}`)
   }
+})
+
+test('release metadata pins one immutable SDK version', async () => {
+  const release = JSON.parse(await readFile(join(ROOT, 'release.json'), 'utf8'))
+  const pkg = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
+  const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
+
+  assert.equal(pkg.version, release.version)
+  assert.match(release.version, /^\d+\.\d+\.\d+$/)
+  assert.equal(release.coreCommit.length, 40)
+  assert.ok(release.cdnUrl.includes(`@${release.version}/`))
+  assert.ok(!release.cdnUrl.includes('@main'))
+  assert.ok(readme.includes(release.cdnUrl))
+  assert.ok(!readme.includes('@main'))
+})
+
+test('release artifacts match their source marker, hashes and SRI', async () => {
+  const release = JSON.parse(await readFile(join(ROOT, 'release.json'), 'utf8'))
+  assert.equal(await sha('sha256', join(ROOT, 'src/index.js')), release.sourceSha256)
+
+  for (const [relativePath, expected] of Object.entries(release.artifacts)) {
+    const path = join(ROOT, relativePath)
+    const text = await readFile(path, 'utf8')
+    assert.ok(text.startsWith(`/* w2a-src-sha256:${release.sourceSha256} */`),
+      `${relativePath} must name the release source hash`)
+    assert.equal(await sha('sha256', path), expected.sha256,
+      `${relativePath} must match release.json`)
+    if (expected.sri) {
+      const bytes = await readFile(path)
+      const sri = 'sha384-' + createHash('sha384').update(bytes).digest('base64')
+      assert.equal(sri, expected.sri, `${relativePath} SRI must match release.json`)
+      const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
+      assert.ok(readme.includes(`integrity="${sri}"`), 'README must publish the verified SRI')
+    }
+  }
+})
+
+test('public types expose the synchronous ready-ad claim contract', async () => {
+  const types = await readFile(join(ROOT, 'types/index.d.ts'), 'utf8')
+  assert.ok(types.includes('tryShowReady(format: AdFormat, placement: string): ReadyAdClaim'),
+    'types must expose the gesture-safe SDK entry point')
+  assert.ok(types.includes('showInterstitial(placement: string): Promise<void>'),
+    'types must describe the async direct-show result')
 })

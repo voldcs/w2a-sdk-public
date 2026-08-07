@@ -66,56 +66,59 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
 @media (min-aspect-ratio:16/25) and (max-aspect-ratio:1/1){
  .w2a-backdrop[data-fit="auto"][data-crop-safe="true"][data-ratio="4x5"] :is(img,video).w2a-media{object-fit:cover}}
 .w2a-backdrop[data-fit="cover"][data-crop-safe="true"] :is(img,video).w2a-media{object-fit:cover}
-/* The CTA overlays the creative; it does not sit in a region beneath it. Anchored
-   bottom-right, and the top edge starts below the close control's exclusion zone
-   (12px offset + 50px target + 24px gap) so a thumb reaching for one never finds
-   the other. */
-.w2a-side{position:absolute;z-index:30;
- top:calc(var(--w2a-t) + 86px);right:calc(var(--w2a-r) + 16px);bottom:calc(var(--w2a-b) + 16px);
- width:min(340px,calc(100% - var(--w2a-l) - var(--w2a-r) - 32px));
- display:flex;flex-direction:column;align-items:stretch;justify-content:flex-end;gap:8px;
- overflow:hidden;text-align:left;pointer-events:none}
-/* Legibility scrim, portrait only. The panel here is a transparent overlay
-   directly ON the creative, and a text-shadow is the wrong tool for that job: it
-   does nothing for the app icon, which is an image, and it does not survive the
-   creative's own artwork landing in the same place. On a real handset the
-   advertiser's "PLAY NOW" button sat exactly on top of the icon and the app name,
-   and the whole listing row became unreadable - the one row whose entire purpose
-   is telling the player what they are about to install.
-   ...
-   A scrim behind the panel fixes it for every creative rather than for the ones
-   we happened to test, and it costs nothing on a dark creative. It is drawn on
-   the stage, not on the panel, because a gradient confined to a 340px box reads
-   as a floating rectangle; full width reads as the ad. It sits BELOW the panel
-   (z-index 20 against the panel's 30) and above the creative.
-   ...
-   End card only. During playback the panel is deliberately minimal so it does not
-   compete with the film, and a scrim then would be dimming the thing the
-   advertiser is paying to show. */
-.w2a-backdrop:not([data-phase="video"]) .w2a-stage::after{content:'';position:absolute;
- left:0;right:0;bottom:0;height:34%;z-index:20;pointer-events:none;
- background:linear-gradient(to top,rgba(9,11,20,.92) 0%,rgba(9,11,20,.55) 45%,transparent 100%)}
-/* The scrim alone was NOT enough, and the first attempt at this bug proved it on
-   a handset: a gradient fixes CONTRAST, and the defect here is COLLISION. The
-   creative's own "PLAY NOW" button occupies the same band as the listing row, so
-   dimming it just produced a grey button still sitting across the app icon and
-   the app name. The listing needs a surface of its own - which is what every
-   end card that works, AppLovin's and Unity's included, actually is.
-   ...
-   Portrait only, end card only, and only when there IS a listing to seat: during
-   playback the panel stays a transparent overlay so it does not box in the film. */
-.w2a-backdrop:not([data-phase="video"]) .w2a-side{
- background:rgba(9,11,20,.9);border-radius:20px 20px 0 0;
- padding:16px 16px calc(var(--w2a-b) + 16px);
- top:auto;left:var(--w2a-l);right:var(--w2a-r);bottom:0;width:auto;
- box-shadow:0 -12px 32px rgba(0,0,0,.45)}
-.w2a-headline{margin:0;color:#fff;font-size:20px;line-height:1.2;font-weight:750;
- text-shadow:0 2px 8px rgba(0,0,0,.8)}
-.w2a-subtitle{margin:0;color:rgba(255,255,255,.88);font-size:13px;line-height:1.35;
- font-weight:500;text-shadow:0 2px 6px rgba(0,0,0,.8)}
-/* During video the creative is the message: host copy must not reserve screen. */
-.w2a-backdrop[data-phase="video"] .w2a-headline,
-.w2a-backdrop[data-phase="video"] .w2a-subtitle{display:none}
+/* TWO SHAPES, and only two. Every large network converged on the same pair, and
+   the partner's side-by-side asked for exactly it:
+     BAR  - while the creative is running: app icon on the left, CTA pill on the
+            right, over a short gradient. It reserves ~80px and nothing else.
+     CARD - once the creative is finished: a centred stack (icon, name, facts,
+            CTA) over a dimmed, blurred still of the creative.
+   What this replaces, and why. The panel used to be a bottom SHEET anchored over
+   the creative's own end-card art. On Toon Blocks that art has a "PLAY NOW"
+   button in the same band, so the sheet cut it in half - the partner
+   photographed it. A scrim was tried first and did not help, because the defect
+   is COLLISION, not contrast: dimming a button that sits across the app name
+   leaves a dim button still sitting across the app name. A centred card cannot
+   collide with the art at all, because the whole art is behind the scrim. */
+.w2a-side{position:absolute;z-index:30;top:auto;left:0;right:0;bottom:0;width:auto;
+ display:flex;flex-direction:row;align-items:center;gap:14px;
+ padding:16px calc(var(--w2a-r) + 16px) calc(var(--w2a-b) + 16px) calc(var(--w2a-l) + 16px);
+ background:linear-gradient(to top,rgba(0,0,0,.78) 0%,rgba(0,0,0,.42) 55%,transparent 100%);
+ text-align:left;pointer-events:none}
+.w2a-listing{display:flex;flex-direction:column;gap:2px;min-width:0}
+/* CARD. Applies to the two kinds that HAVE a finished state. A static image ad
+   is in the endcard phase from its first frame - scrimming it would blur the
+   only thing we were paid to show - so it keeps the bar. */
+.w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-side{
+ inset:0;flex-direction:column;align-items:center;justify-content:center;
+ gap:10px;text-align:center;
+ padding:calc(var(--w2a-t) + 78px) calc(var(--w2a-r) + 24px) calc(var(--w2a-b) + 26px) calc(var(--w2a-l) + 24px);
+ background:rgba(6,8,14,.84);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+.w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-listing{
+ align-items:center;gap:6px}
+.w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-cta{
+ margin:12px 0 0;min-width:220px;min-height:58px;font-size:19px}
+.w2a-headline{margin:0;color:#fff;font-size:17px;line-height:1.2;font-weight:700;
+ text-shadow:0 2px 8px rgba(0,0,0,.8);
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.w2a-subtitle{margin:0;color:rgba(255,255,255,.78);font-size:13px;line-height:1.35;
+ font-weight:500;text-shadow:0 2px 6px rgba(0,0,0,.8);
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* During playback the creative is the message: host copy must not reserve screen,
+   so the bar carries the icon and the pill and nothing else. The listing comes
+   back on the end card, where there is a whole screen for it. */
+.w2a-backdrop[data-phase="video"] .w2a-listing{display:none}
+/* With the listing gone the bar is two objects, and the reference keeps them
+   TOGETHER at the trailing edge rather than pinned to opposite corners. In
+   landscape that lands both of them in the pillarbox gutter beside a portrait
+   creative, which is exactly where the reference puts them and is why nothing
+   overlaps the gameplay. The auto margin on the pill has to be cancelled here or
+   it would split the free space between the two and strand the icon mid-bar. */
+.w2a-backdrop[data-phase="video"] .w2a-side{justify-content:flex-end}
+.w2a-backdrop[data-phase="video"] .w2a-cta{margin-left:0}
+.w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-headline{
+ font-size:26px;font-weight:800;white-space:normal;text-shadow:none}
+.w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-subtitle{
+ font-size:15px;white-space:normal;text-shadow:none}
 /* A playable owns the screen WHILE it is being played, so the panel is hidden
    then - not for the whole ad. It used to be hidden unconditionally, which
    meant a playable had no Install button at any point: the creative posts
@@ -123,14 +126,27 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
    without top navigation, so it cannot link to a store itself), and the parent
    never did. Every playable impression was unconvertible. */
 .w2a-backdrop[data-kind="playable"][data-phase="video"] .w2a-side{display:none}
+/* A PILL, not a full-width slab. The slab was the loudest difference in the
+   partner's comparison: at 100% width with a 12px radius it reads as a page
+   footer, and on the end card it spanned the whole phone under a centred logo.
+   Every reference CTA in this category is a capsule sized to its own label. */
+/* The auto left margin pushes the pill to the far edge of the bar rather than
+   the row being justified apart, so a missing app icon cannot re-centre the
+   button. It lives HERE, inside the shorthand, and not in an earlier standalone
+   rule: the margin shorthand below sits later in the sheet at equal specificity
+   and silently won, which put the Install pill next to the icon on the LEFT of
+   the screen. The end-card rule that re-centres it is more specific, so it still
+   wins. */
 .w2a-cta{pointer-events:auto;touch-action:manipulation;appearance:none;
- display:flex;align-items:center;justify-content:center;
- width:100%;min-height:52px;margin:0;padding:12px 20px;
- border:0;border-radius:12px;background:#4ade80;color:#052e16;
- box-shadow:0 4px 18px rgba(0,0,0,.42);
- font:inherit;font-size:17px;line-height:1.2;font-weight:750;text-align:center;
- text-decoration:none;cursor:pointer;transition:background .2s,color .2s}
-.w2a-backdrop[data-phase="endcard"] .w2a-cta{min-height:56px;font-size:18px}
+ display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+ min-height:52px;margin:0 0 0 auto;padding:0 30px;
+ border:0;border-radius:999px;
+ background:linear-gradient(180deg,#35d17e 0%,#12a55b 100%);color:#fff;
+ box-shadow:0 6px 22px rgba(0,0,0,.45);
+ font:inherit;font-size:17px;line-height:1.2;font-weight:700;text-align:center;
+ white-space:nowrap;text-decoration:none;cursor:pointer;
+ transition:filter .2s,transform .1s}
+.w2a-cta:active{filter:brightness(.94);transform:scale(.98)}
 /* Our own request id / format / placement is plumbing. It was being rendered
    under every creative, where a partner reads it as an unfinished build. */
 .w2a-backdrop:not([data-debug="true"]) .w2a-meta{display:none!important}
@@ -138,103 +154,90 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
 /* 50px, not 44: MRAID 3.0 requires a close region of at least 50x50 dp and
    recommends the top-right corner. Apple's 44pt is a floor for buttons in
    general, not for the control that dismisses a full-screen ad. */
+/* FILLED discs, not outlined ones. A 1px translucent ring around a dark circle
+   is what an unstyled placeholder looks like at phone scale, and it was the
+   detail the partner's comparison landed on first. A filled disc also survives a
+   light creative underneath, which a hairline outline does not. */
 .w2a-backdrop button[data-w2a="close"],.w2a-backdrop button[data-w2a="sound"]{
  position:absolute;display:grid;place-items:center;width:50px;height:50px;margin:0;padding:0;
- border:1px solid rgba(255,255,255,.4);border-radius:50%;background:rgba(0,0,0,.62);
- color:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4);font:inherit;line-height:1;
+ border:0;border-radius:50%;background:rgba(0,0,0,.55);
+ -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+ color:#fff;box-shadow:none;font:inherit;line-height:1;font-weight:600;
  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .w2a-backdrop button[data-w2a="close"]{z-index:60;
  top:calc(var(--w2a-t) + 12px);right:calc(var(--w2a-r) + 12px);left:auto;font-size:24px}
 .w2a-backdrop button[data-w2a="sound"]{z-index:50;
  top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;font-size:21px}
-.w2a-backdrop button[data-w2a="reward"]{pointer-events:auto;z-index:30;
+.w2a-backdrop button[data-w2a="reward"]{pointer-events:auto;z-index:30;flex:0 0 auto;
  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35);color:#fff;
- padding:10px 16px;border-radius:10px;font-size:14px;min-height:44px;cursor:pointer}
+ padding:10px 18px;border-radius:999px;font-size:14px;min-height:44px;cursor:pointer;
+ -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .w2a-backdrop button[data-w2a="close"]:focus-visible,
 .w2a-backdrop button[data-w2a="sound"]:focus-visible,
 .w2a-cta:focus-visible{outline:3px solid #fff;outline-offset:3px}
-/* LANDSCAPE: a real two-column split, not an overlay.
-   The partner's complaint was that the Install button covered the gameplay in
-   landscape, and the reference they pointed at (Google's renderer) puts the
-   creative in its own column with a panel beside it - nothing overlapping.
-   Portrait keeps the full-bleed creative with a compact overlay; only landscape
-   splits. "Full screen" describes the opaque ad SURFACE; it cannot also mean
-   every creative covers every viewport uncropped, because those are
-   geometrically incompatible.
+/* LANDSCAPE is the SAME two shapes, only tuned for a short viewport.
+   What this replaces: a two-column split with an opaque panel beside the
+   creative, built when the reference the partner pointed at was Google's
+   renderer. That reference is now AppLovin, which overlays rather than splits -
+   and the split had two defects of its own, both photographed on a handset:
+     - Below its own 600x320 floor it fell back to the PORTRAIT bottom sheet.
+       A phone in landscape, minus the browser chrome, is about 290 CSS px tall,
+       so the fallback was not an edge case - it was the common case, and the
+       ad rendered as a portrait sheet crammed sideways.
+     - On the end card, the rule that removed the sheet's background also
+       removed the panel's own, leaving #111827 text on black. The listing was
+       invisible and nothing said so.
+   One layout that adapts cannot drift apart from itself the way two did. The
+   pill lands in the pillarbox gutter for a portrait creative on a landscape
+   screen - which is where the reference puts it - and over the bottom-right
+   corner when the creative fills the width, which is what the reference does
+   too. No JS measures anything, so rotation re-resolves for free. */
+@media (orientation:landscape){
+ .w2a-side{padding-top:12px;padding-bottom:calc(var(--w2a-b) + 12px)}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-side{
+  gap:6px;padding-top:calc(var(--w2a-t) + 64px);padding-bottom:calc(var(--w2a-b) + 16px)}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-app-icon{
+  width:78px;height:78px;border-radius:18px}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-headline{font-size:21px}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-cta{
+  margin-top:6px;min-height:50px;font-size:17px}}
+/* Under ~400px of height the end card has to give something up. It gives up the
+   store name and shrinks the icon, in that order: the name is the least
+   load-bearing line on the card, and the button is the reason the card exists. */
+@media (orientation:landscape) and (max-height:400px){
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-app-icon{
+  width:56px;height:56px;border-radius:14px}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-headline{font-size:19px}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-store-name{display:none}}
 
-   The 600x320 floor is where two useful columns stop fitting: below it the panel
-   cannot hold a 44px-tall CTA, the app name and the safe-area insets at once, so
-   it falls back to the compact overlay rather than degrading into a sliver.
+/* The HTML hidden ATTRIBUTE is only display:none in the UA stylesheet, and ANY
+   author display rule outranks it. Three elements here carried an author display
+   - the icon, the facts row and the store name - so setting .hidden = true,
+   which is how every one of them is meant to disappear when the advertiser did
+   not supply that field, did precisely nothing. The grey plate the partner
+   photographed where the app icon belongs is this bug: the icon's own error
+   handler set hidden and the plate stayed.
+   Restated once, for the whole overlay, so the next element with an author
+   display does not reintroduce it. The !important is restoring UA behaviour that
+   author rules are outranking, which is the case the keyword is actually for. */
+.w2a-backdrop [hidden]{display:none!important}
 
-   The creative column is sized from the creative's OWN ratio - data-ratio is
-   already set from the intrinsic dimensions - and capped so the panel keeps its
-   minimum. No JS measures anything, so rotation re-resolves for free. */
-.w2a-backdrop[data-ratio="16x9"]{--w2a-media-w:177.778dvh}
-.w2a-backdrop[data-ratio="1x1"]{--w2a-media-w:100dvh}
-.w2a-backdrop[data-ratio="4x5"]{--w2a-media-w:80dvh}
-.w2a-backdrop[data-ratio="9x16"]{--w2a-media-w:56.25dvh}
-@media (orientation:landscape) and (min-width:600px) and (min-height:320px){
- .w2a-stage{display:grid;
-  grid-template-columns:min(var(--w2a-media-w,100dvh),calc(100vw - 280px)) minmax(280px,1fr);
-  grid-template-rows:100%}
- .w2a-cardwrap{position:relative;inset:auto;grid-column:1;grid-row:1;
-  width:100%;height:100%;background:#000}
- .w2a-card{position:absolute;inset:0;width:100%;height:100%}
- /* Never crop in the split: the column is already the creative's own shape, so
-    cover here would throw away edges for no gain. */
- .w2a-card :is(img,video).w2a-media{object-fit:contain!important}
- /* No scrim in landscape: the panel owns its own column and sits beside the
-    creative rather than on top of it, so there is nothing to be unreadable
-    against. */
- .w2a-backdrop .w2a-stage::after{display:none}
- /* and no bottom sheet either - the panel is already its own column. */
- .w2a-backdrop:not([data-phase="video"]) .w2a-side{background:none;border-radius:0;
-  padding:0;box-shadow:none;top:auto;left:auto;right:auto;bottom:auto;width:auto}
- .w2a-side{position:relative;inset:auto;grid-column:2;grid-row:1;
-  width:auto;height:100%;
-  padding:calc(var(--w2a-t) + 74px) calc(var(--w2a-r) + 20px) calc(var(--w2a-b) + 20px) 20px;
-  display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:10px;
-  background:#fff;pointer-events:none}
- /* The panel is our surface, not the advertiser's - dark-on-light, like the
-    store page the click lands on. */
- .w2a-headline{color:#111827;text-shadow:none;font-size:22px;text-align:center}
- /* Through .w2a-backdrop so specificity decides this, not source order. The
-    light-on-dark defaults below are written for the portrait overlay and sit
-    LATER in the sheet; at equal specificity they won, and the panel rendered
-    near-white text on white. */
- .w2a-app-icon{align-self:center;width:64px;height:64px;border-radius:16px;
-  background:#e5e7eb;box-shadow:none}
- .w2a-backdrop .w2a-store-facts{color:#111827;justify-content:center;text-shadow:none}
- .w2a-backdrop .w2a-store-name{text-align:center;text-shadow:none}
- .w2a-backdrop .w2a-store-name{color:#4b5563}
- .w2a-backdrop .w2a-subtitle{color:#4b5563;text-shadow:none}
- .w2a-subtitle{color:#4b5563;text-shadow:none;text-align:center}
- /* The name has to be visible next to the button during video too - the partner
-    asked for it explicitly - so the video-phase rule that hides it is undone
-    inside the panel, where there is room for it. */
- .w2a-backdrop[data-phase="video"] .w2a-headline{display:block;font-size:19px}
- .w2a-cta{width:min(280px,100%);align-self:center;min-height:48px;font-size:16px}
- .w2a-backdrop[data-phase="endcard"] .w2a-cta{width:min(360px,100%);min-height:56px}
- /* A playable owns its whole surface; giving it a panel would double the CTA. */
- .w2a-backdrop[data-kind="playable"] .w2a-stage{display:block}}
-
-/* End-card store listing: icon, rating, downloads. Shown only on the end card -
-   during playback the panel stays minimal so it does not compete with the
-   creative, which is what the partner asked for. */
-/* PORTRAIT the panel is a transparent overlay directly on the creative, so
-   everything left-aligns with the headline and everything carries the same
-   shadow. Centring only the icon and the facts row - which is what a naive
-   copy of the landscape panel does - reads as three things that were positioned
-   by different people. And a line without the shadow is unreadable the moment
-   the creative under it is light, which is exactly what the store name did. */
-.w2a-app-icon{display:block;width:56px;height:56px;border-radius:14px;
- object-fit:cover;background:rgba(255,255,255,.15);align-self:flex-start;flex:0 0 auto;
- box-shadow:0 2px 10px rgba(0,0,0,.45)}
+/* End-card store listing: icon, rating, downloads. In the BAR the icon is a
+   52px badge next to the pill; on the CARD it is the largest thing on screen,
+   because a store listing is what the end card is. No background plate under it
+   in either: an icon that has not loaded yet should be nothing, not a grey
+   square that looks like a broken build. */
+.w2a-app-icon{display:block;width:52px;height:52px;border-radius:14px;
+ object-fit:cover;background:transparent;align-self:center;flex:0 0 auto;
+ box-shadow:0 4px 14px rgba(0,0,0,.45)}
+.w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-app-icon{
+ width:108px;height:108px;border-radius:26px;box-shadow:0 12px 32px rgba(0,0,0,.55)}
 .w2a-store-facts{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:4px 14px;
  margin:0;font-size:14px;font-weight:650;text-shadow:0 2px 6px rgba(0,0,0,.8)}
 .w2a-store-name{margin:0;font-size:13px;text-align:left;opacity:.85;
  text-shadow:0 2px 6px rgba(0,0,0,.8)}
-.w2a-backdrop[data-phase="video"] :is(.w2a-app-icon,.w2a-store-facts,.w2a-store-name){display:none}
+.w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"]
+ :is(.w2a-store-facts,.w2a-store-name){justify-content:center;text-align:center;text-shadow:none}
 .w2a-store-facts{color:#f3f4f6}.w2a-store-name{color:#d1d5db}
 
 /* Ad disclosure. Top-CENTRE deliberately: the top-left corner holds the sound
@@ -242,26 +245,19 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
    controls a thumb reaches for. Opaque black on white is 21:1 contrast, well past
    the 4.5:1 accessibility floor, because this has to stay legible over an
    arbitrary advertiser creative rather than over our own background. */
+/* A capsule, 11px, uppercase - the shape a disclosure takes everywhere else.
+   The 12px block with a 4px radius read as a sticker pasted on the creative,
+   which is the first thing the partner circled. The background stays OPAQUE
+   black: this label has to hold 4.5:1 over an arbitrary advertiser creative, and
+   a translucent chip over a light one falls to about 3:1. Prettier is not a
+   reason to lose a contrast floor, so only the geometry changed. */
 .w2a-ad-label{position:absolute;z-index:70;
- top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);
+ top:calc(env(safe-area-inset-top,0px) + 10px);left:50%;transform:translateX(-50%);
  display:flex;align-items:center;justify-content:center;
- min-height:20px;padding:2px 8px;border-radius:4px;
+ min-height:20px;padding:3px 10px;border-radius:999px;
  background:#000;color:#fff;
- font:600 12px/16px system-ui,-apple-system,sans-serif;
- letter-spacing:.02em;white-space:nowrap;pointer-events:none}
-/* Landscape BELOW the split floor: too narrow or too short for two columns, so
-   it stays the compact overlay and only trims the controls.
-   The condition is the exact COMPLEMENT of the split query above, not an
-   overlapping one. It used to be max-height:620px, which overlapped the split
-   range and, sitting later in the sheet, silently won: the panel was pinned to
-   300px inside a 624px column, leaving a black stripe down the right of every
-   landscape ad. Two rules that can both match the same viewport are decided by
-   source order, which is not a thing anyone should have to reason about here. */
-@media (orientation:landscape) and (max-width:599px),
-       (orientation:landscape) and (max-height:319px){
- .w2a-side{width:min(300px,calc(100% - var(--w2a-l) - var(--w2a-r) - 32px))}
- .w2a-headline,.w2a-subtitle{display:none}
- .w2a-cta,.w2a-backdrop[data-phase="endcard"] .w2a-cta{min-height:48px;padding:10px 18px;font-size:16px}}
+ font:600 11px/14px system-ui,-apple-system,sans-serif;
+ letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;pointer-events:none}
 `
 // VAST ships one ad in several shapes and expects the PLAYER to choose between
 // them - that is what the width/height attributes on MediaFile are for. We took
@@ -362,6 +358,41 @@ function foreignFullscreen() {
 function hasActivation() {
   const ua = typeof navigator !== 'undefined' && navigator.userActivation
   return !!(ua && ua.isActive)
+}
+
+/**
+ * Is the browser painting UI that fullscreen would reclaim?
+ *
+ * MEASURED, not read off the user agent. Two conditions, and both are needed:
+ *
+ *   coarse pointer - a desktop window is routinely smaller than the screen for
+ *     reasons that have nothing to do with a toolbar (it was resized, it is
+ *     tiled, there is a second monitor). Without this check every windowed
+ *     desktop browser would look like a phone with an address bar, and a
+ *     top-level desktop ad would start yanking the tab into fullscreen.
+ *
+ *   viewport shorter than the screen - this is the toolbar itself, in CSS
+ *     pixels. Compared on the axis the chrome actually eats, which is the
+ *     CURRENT orientation's height: a phone in landscape reports a screen whose
+ *     long side may or may not follow the rotation depending on the platform, so
+ *     the screen's height for this purpose is min/max of the two by orientation
+ *     rather than `screen.height` as reported.
+ *
+ * The 6% slack absorbs a rounding difference and a hairline gesture bar without
+ * calling either of them a toolbar.
+ */
+function browserChromeVisible() {
+  try {
+    if (typeof window === 'undefined' || typeof screen === 'undefined') return false
+    const coarse = (typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0)
+      || !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches)
+    if (!coarse) return false
+    const sh = screen.height || 0, sw = screen.width || 0
+    const vh = window.innerHeight || 0, vw = window.innerWidth || 0
+    if (!(sh > 0 && sw > 0 && vh > 0 && vw > 0)) return false
+    const screenH = vh >= vw ? Math.max(sh, sw) : Math.min(sh, sw)
+    return vh < screenH * 0.94
+  } catch (e) { return false }
 }
 
 // Idempotent: a page may run several ads, and re-appending the same rules on
@@ -623,6 +654,10 @@ class W2ASDK {
       // aborts every ad request instead.
       cfg && Object.fromEntries(Object.entries(cfg).filter(([, v]) => v !== undefined)),
     )
+    // A fresh configuration gets a fresh set of warnings. Whoever calls init()
+    // again has changed something, and the point of the once-per-reason rule is
+    // to stop repetition, not to hide the effect of a fix.
+    this._explained = new Set()
     return this
   }
 
@@ -1167,7 +1202,15 @@ class W2ASDK {
     if (app.iconUrl) {
       icon.src = src(app.iconUrl)
       icon.hidden = false
-      // A broken icon must not leave a grey square where a logo should be.
+      // Fetched at the FRONT of the queue and rendered from the first frame in
+      // the bar, not first revealed on the end card. Hidden behind
+      // `display:none` for the whole video it had no reason to be decoded early,
+      // and the end card opened onto an icon that had not painted yet - which is
+      // the other half of the grey-square report, alongside the `hidden` bug the
+      // stylesheet now fixes.
+      icon.fetchPriority = 'high'
+      icon.decoding = 'async'
+      // A broken icon must not leave a hole where a logo should be.
       icon.addEventListener('error', () => { icon.hidden = true }, { once: true })
     }
     if (app.name) title.textContent = app.name
@@ -1186,7 +1229,12 @@ class W2ASDK {
     const storeName = el('div', null, { className: 'w2a-store-name', textContent: app.storeName || '' })
     storeName.hidden = !app.storeName
 
-    side.append(icon, title, sub, facts, storeName, cta, rewardBtn, meta)
+    // The four listing lines travel together, so the panel can be a ROW (icon |
+    // listing | pill) during playback and a COLUMN on the end card without the
+    // lines ever becoming four independent flex items that wrap on their own.
+    const listing = el('div', null, { className: 'w2a-listing' })
+    listing.append(title, sub, facts, storeName)
+    side.append(icon, listing, cta, rewardBtn, meta)
     stage.append(cardWrap, side)
     // `close` and `soundBtn` stay direct children of the backdrop: they are
     // pinned to screen corners, so they must not travel when the stage switches
@@ -2119,10 +2167,28 @@ class W2ASDK {
   _enterFullscreen(ctx) {
     ctx.framed = isFramed()
     ctx.presentation = 'document'
-    if (!ctx.framed) { ctx.fullscreen = 'unnecessary'; ctx.presentation = 'window'; return }
+    // Being unframed used to end the story here: `position:fixed` already covers
+    // the document viewport, so there was nothing left to escape. That is true of
+    // a desktop tab and false of a phone, where the browser's own toolbar sits
+    // OUTSIDE the layout viewport and takes 60-130 CSS px that fullscreen hands
+    // back. The partner asked for precisely that - the ad should open without the
+    // address bar above it - and the ads that were photographed had it, because
+    // they were opened at the top level rather than inside a game frame.
+    //
+    // So the question is not "are we framed" but "is there browser chrome to
+    // reclaim", and that one is measurable instead of inferred.
+    if (!ctx.framed && !browserChromeVisible()) {
+      ctx.fullscreen = 'unnecessary'; ctx.presentation = 'window'; return
+    }
     if (!fullscreenAllowed()) { ctx.fullscreen = 'unavailable'; return } // no delegation, or iPhone
     if (foreignFullscreen()) { ctx.fullscreen = 'inherited'; ctx.presentation = 'screen'; return }
-    if (!hasActivation()) { ctx.fullscreen = 'no_activation'; return }
+    // `_show` awaits the ad request before it paints, so the tap that started the
+    // ad is often no longer spendable by the time we get here. Reporting
+    // `no_activation` and stopping was truthful and useless: the ad then ran with
+    // the toolbar up for its whole life. The first touch that lands ON the ad is
+    // a fresh activation, so ask again then - once, and never after the user has
+    // deliberately left fullscreen, which would be fighting them.
+    if (!hasActivation()) { ctx.fullscreen = 'no_activation'; this._armFullscreenRetry(ctx); return }
     const root = document.documentElement
     if (!root || typeof root.requestFullscreen !== 'function') { ctx.fullscreen = 'unavailable'; return }
     ctx.fullscreen = 'requested'
@@ -2159,8 +2225,45 @@ class W2ASDK {
     } catch { ctx.fullscreen = 'denied' }
   }
 
+  /**
+   * One retry, spent on the first touch that lands on the ad.
+   *
+   * Bounded on purpose. It fires at most once (`once:true`), only from the
+   * `no_activation` state, and it re-checks that state at fire time - so a user
+   * who pressed Escape between arming and touching is not dragged back into
+   * fullscreen by their own tap. It listens in the CAPTURE phase so it sees the
+   * touch even if the creative's iframe would otherwise own it, and it never
+   * calls preventDefault: the tap must still do whatever it was going to do.
+   */
+  _armFullscreenRetry(ctx) {
+    const root = typeof document !== 'undefined' && document.documentElement
+    if (!ctx.overlay || !root || typeof root.requestFullscreen !== 'function') return
+    ctx._fsRetry = () => {
+      ctx._fsRetry = null
+      if (ctx.completed || ctx.fullscreen !== 'no_activation') return
+      if (foreignFullscreen()) { ctx.fullscreen = 'inherited'; ctx.presentation = 'screen'; return }
+      ctx.fullscreen = 'requested'
+      try {
+        const p = root.requestFullscreen()
+        if (p && p.then) {
+          p.then(() => {
+            ctx.fullscreen = 'entered'; ctx.presentation = 'screen'; ctx.fullscreenOwned = true
+          }, () => { ctx.fullscreen = 'denied' })
+        }
+      } catch { ctx.fullscreen = 'denied' }
+    }
+    ctx.overlay.addEventListener('pointerdown', ctx._fsRetry, { once: true, capture: true })
+  }
+
   _exitFullscreen(ctx) {
     if (ctx._fsWatch) { document.removeEventListener('fullscreenchange', ctx._fsWatch); ctx._fsWatch = null }
+    if (ctx._fsRetry) {
+      // Removed explicitly rather than left to `once`, which only fires on a tap
+      // that may never come: the overlay is detached on teardown, and a listener
+      // holding this closure would hold the whole ad context with it.
+      if (ctx.overlay) ctx.overlay.removeEventListener('pointerdown', ctx._fsRetry, { capture: true })
+      ctx._fsRetry = null
+    }
     // Only undo what WE did. Exiting a fullscreen the game owns would drop the
     // player out of their own game when our ad closes.
     if (!ctx.fullscreenOwned) return
@@ -2255,8 +2358,53 @@ class W2ASDK {
 
   _state(s) {
     if (!STATES.includes(s.state)) return
+    // `quiet: true` turns the developer warning off for a host that routes our
+    // events somewhere of its own. Off by default is the wrong default here -
+    // see explainSilence.
+    if (!this.cfg || this.cfg.quiet !== true) explainSilence(s, this._explained || (this._explained = new Set()))
     this._emit('ad_state', s)
   }
+}
+
+/**
+ * Say WHY nothing appeared, to the developer, in the console.
+ *
+ * There was not one `console` call in this entire file. When an ad does not
+ * fill, the SDK renders nothing - which is correct - and it also said nothing,
+ * anywhere, to anyone who had not wired an `ad_state` listener. That is every
+ * integration on its first run.
+ *
+ * The cost was measured rather than imagined: a partner's engineer dropped the
+ * SDK into a real game, tested it on a laptop, got fourteen `unsupported_device`
+ * no-fills across a day, saw a blank screen every time, and reported "the ad
+ * does not start". Nothing was broken. He had simply been given no way to find
+ * that out, and the report cost both sides a day.
+ *
+ * ONCE PER REASON per page, not per request. A game that never fills would
+ * otherwise print a line per impression, and a log that scrolls is a log nobody
+ * reads. One line per distinct reason tells a developer what is happening and
+ * stays quiet afterwards, including in production.
+ */
+const SILENT_STATES = { no_fill: 1, unsupported: 1, failed: 1 }
+const WHY = {
+  unsupported_device: 'this device is not eligible - the demand here is mobile-only, so a desktop browser draws no bid at all',
+  no_bid: 'no campaign bid for this request - genre, country, budget or frequency cap',
+  rate_limited: 'the ad server is rate-limiting this publisher',
+  creative_error: 'the creative failed to render; this one IS a bug on our side - please send the requestId',
+  timeout: 'the ad server did not answer in time',
+}
+function explainSilence(s, explained) {
+  if (!SILENT_STATES[s.state]) return
+  const key = s.state + ':' + (s.reason || '')
+  if (explained.has(key)) return
+  explained.add(key)
+  if (typeof console === 'undefined' || typeof console.warn !== 'function') return
+  console.warn(
+    `[W2A] no ad was shown (${s.state}): ${WHY[s.reason] || s.reason || 'no reason given'}`
+    + (s.detail ? ` · ${s.detail}` : '')
+    + ` · requestId ${s.requestId || 'n/a'}`
+    + ' · shown once per reason; W2A.on("ad_state", fn) reports every one'
+  )
 }
 
 // Why there was no ad, as reported by the SERVER. The client cannot tell an

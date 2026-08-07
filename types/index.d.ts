@@ -151,6 +151,20 @@ export interface RewardEvidence {
   verdict(durationMs: number | null): RewardVerdict
 }
 
+export interface PreloadResult {
+  filled: boolean
+  ready: boolean
+  reason?: string
+  requestId?: string
+  readinessProof?: string
+}
+
+export interface ReadyAdClaim {
+  started: boolean
+  reason?: string
+  requestId?: string
+}
+
 export function createRewardEvidence(opts?: {
   minStepMs?: number
   tolerance?: number
@@ -161,11 +175,15 @@ export function createRewardEvidence(opts?: {
 
 export interface W2ASDK {
   init(cfg: W2AConfig): W2ASDK
-  showInterstitial(placement: string): void
-  showRewarded(placement: string): void
-  /** prefetch the ad decision WITHOUT rendering, so a later show() renders
-   *  synchronously inside a user gesture (needed for partner passback). */
-  preload(format: AdFormat, placement: string): Promise<{ filled: boolean }>
+  showInterstitial(placement: string): Promise<void>
+  showRewarded(placement: string): Promise<void>
+  /** Prefetch the ad decision and prepare its creative in a hidden overlay, so
+   *  a later claim renders synchronously inside a user gesture. */
+  preload(format: AdFormat, placement: string): Promise<PreloadResult>
+  /** Advisory only. tryShowReady() is the atomic correctness gate. */
+  isReady(format: AdFormat, placement: string): boolean
+  /** Claim and start a ready ad synchronously inside the current user gesture. */
+  tryShowReady(format: AdFormat, placement: string): ReadyAdClaim
   on(event: W2AEvent, cb: (e: AdStateEvent) => void): () => void
 }
 

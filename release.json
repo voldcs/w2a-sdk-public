@@ -1,0 +1,18 @@
+{
+  "version": "0.1.1",
+  "coreCommit": "b2f402b20758789a934f01fd951345542a80e3f6",
+  "sourceSha256": "6fca6f1d72243ace3096ddfae6cd66922422baf0784f0b8cfe395133ec48de87",
+  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.1/dist/w2a-sdk.min.js",
+  "artifacts": {
+    "dist/w2a-sdk.esm.js": {
+      "sha256": "1eb97e10330a7553ac2e17394b5823fd0b93e4cff611129eb2f4f424eec46ffa"
+    },
+    "dist/w2a-sdk.iife.js": {
+      "sha256": "353b14cb8b667a91eb870152c0f8a29a4f1f03bedd537a72556f537215f48f54"
+    },
+    "dist/w2a-sdk.min.js": {
+      "sha256": "b0a56b996df231e5d48fbb4b378059a8ac0d6f3e135902ca2efe8e07f0d2f904",
+      "sri": "sha384-zew3oiW1ub9+AQK9wYb0F8hx9tPW9XdtJ6Hq149kcxjEPrE8FKy1EhlGLtTh/OIt"
+    }
+  }
+}
