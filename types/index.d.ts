@@ -3,6 +3,8 @@
 export type CreativeFormat = 'image' | 'vast' | 'playable'
 export type AdFormat = 'interstitial' | 'rewarded'
 export type AdState = 'loading' | 'opened' | 'closed' | 'rewarded' | 'failed' | 'no_fill' | 'unsupported'
+export type W2AAudioMode = 'auto' | 'muted'
+export type W2ACreativeFit = 'auto' | 'contain' | 'cover'
 /**
  * `ad_state` carries the lifecycle; a show emits exactly ONE terminal
  * (`closed` / `failed` / `no_fill` / `unsupported`), which is what makes
@@ -22,6 +24,8 @@ export interface W2AConfig {
   backend?: string
   publisherId?: string
   gameId?: string
+  /** publisher price floor in CPM units */
+  floorCpm?: number
   /** requested creative format. Interstitial may fall back to image; rewarded
    *  requires a dedicated route for the requested format. */
   creativeFormat?: CreativeFormat
@@ -38,6 +42,8 @@ export interface W2AConfig {
   /** seconds before the close control is offered */
   closeAfterSecs?: number
   requestTimeoutMs?: number
+  /** maximum time to prepare a creative after its ad decision. Default 6000. */
+  creativeLoadTimeoutMs?: number
   /** advancing video milliseconds required for a rewarded video. Default 30000. */
   videoRewardMs?: number
   /** visible time allowed before media time first advances. Default 10000. */
@@ -49,8 +55,17 @@ export interface W2AConfig {
    *  this value is a total and is never added to the creative duration. */
   maxVideoMs?: number
   maxPlayableMs?: number
-  /** ignore CTA taps within this window after un-gate (anti-misclick) */
+  /** @deprecated Accepted for source compatibility and ignored. The CTA is
+   *  available immediately; genuine-input and one-shot checks still apply. */
   antiMisclickMs?: number
+  /** request audible video and fall back to muted, or always keep it muted */
+  audio?: W2AAudioMode
+  /** media fit policy. `cover` is honored only for crop-safe creatives. */
+  creativeFit?: W2ACreativeFit
+  /** whether the supplied creative may be cropped. Default true. */
+  cropSafe?: boolean
+  /** suppress once-per-reason developer warnings */
+  quiet?: boolean
   /** coarse consent override (e.g. from a GameDistribution mediation adapter) */
   consentState?: string
   /** how long a preload()'d decision stays valid before it expires (ms) */
@@ -179,6 +194,13 @@ export interface ReadyAdClaim {
   requestId?: string
 }
 
+export interface W2ACapabilities {
+  framed: boolean
+  fullscreenAllowed: boolean
+  coverage: 'window' | 'screen_if_gesture' | 'document'
+  viewport: [number, number] | null
+}
+
 export function createRewardEvidence(opts?: {
   minStepMs?: number
   tolerance?: number
@@ -194,10 +216,16 @@ export interface W2ASDK {
   /** Prefetch the ad decision and prepare its creative in a hidden overlay, so
    *  a later claim renders synchronously inside a user gesture. */
   preload(format: AdFormat, placement: string): Promise<PreloadResult>
-  /** Advisory only. tryShowReady() is the atomic correctness gate. */
-  isReady(format: AdFormat, placement: string): boolean
+  /** Advisory only. Optionally require this many milliseconds of remaining
+   *  claim validity. tryShowReady() is the atomic correctness gate. */
+  isReady(format: AdFormat, placement: string, minValidityMs?: number): boolean
   /** Claim and start a ready ad synchronously inside the current user gesture. */
   tryShowReady(format: AdFormat, placement: string): ReadyAdClaim
+  /** Tear down only the active show with this requestId. Returns false for a
+   *  stale or unknown request so an old watchdog cannot cancel a newer ad. */
+  cancelActive(requestId: string, reason?: string): boolean
+  /** Report the coverage surface available in the current browser context. */
+  capabilities(): W2ACapabilities
   on(event: W2AEvent, cb: (e: AdStateEvent) => void): () => void
 }
 
