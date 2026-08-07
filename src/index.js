@@ -352,6 +352,14 @@ function fullscreenAllowed() {
 function foreignFullscreen() {
   return typeof document !== 'undefined' && !!document.fullscreenElement
 }
+function fullscreenBlocksOverlay() {
+  if (typeof document === 'undefined') return false
+  const element = document.fullscreenElement
+  // The SDK overlay lives under <body>. When the root element is fullscreen,
+  // the overlay remains inside that top-layer subtree and can cover it. A child
+  // fullscreen element, such as a video or canvas, excludes our sibling overlay.
+  return !!(element && element !== document.documentElement)
+}
 // Transient activation, not sticky: requestFullscreen needs a gesture that is
 // still live, and it CONSUMES it. Absent the API we assume no activation rather
 // than guessing yes, so we report 'no_activation' instead of a bare rejection.
@@ -924,7 +932,7 @@ class W2ASDK {
     // promised `started: true`, and a failure emitted from inside _activate
     // would tell the host the ad started and then that it failed, so the host
     // never passes back and the slot is burnt for nothing.
-    if (foreignFullscreen()) return { started: false, reason: 'fullscreen_conflict' }
+    if (fullscreenBlocksOverlay()) return { started: false, reason: 'fullscreen_conflict' }
     // Claim: remove from the ready cache and take sole ownership of teardown
     // BEFORE anything can run, so an expiry callback can no longer release it.
     rec.state = 'claimed'
@@ -2167,6 +2175,12 @@ class W2ASDK {
   _enterFullscreen(ctx) {
     ctx.framed = isFramed()
     ctx.presentation = 'document'
+    // The game can already own the root fullscreen before the ad opens. Its body
+    // and our overlay remain inside that fullscreen subtree, so report the
+    // inherited screen presentation before evaluating browser chrome.
+    if (foreignFullscreen() && !fullscreenBlocksOverlay()) {
+      ctx.fullscreen = 'inherited'; ctx.presentation = 'screen'; return
+    }
     // Being unframed used to end the story here: `position:fixed` already covers
     // the document viewport, so there was nothing left to escape. That is true of
     // a desktop tab and false of a phone, where the browser's own toolbar sits

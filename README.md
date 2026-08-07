@@ -13,8 +13,8 @@ anything - the endpoint is not the one older documents give.
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.1/dist/w2a-sdk.min.js"
-        integrity="sha384-zew3oiW1ub9+AQK9wYb0F8hx9tPW9XdtJ6Hq149kcxjEPrE8FKy1EhlGLtTh/OIt"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.2/dist/w2a-sdk.min.js"
+        integrity="sha384-hjIGMxdPXn5EpkW8GQQYQbZGtXyQiRPOracEw/YA+ZidgTAAV+nFy8omWwM4ONY0"
         crossorigin="anonymous"></script>
 ```
 
@@ -93,5 +93,5 @@ platform passback.
 npm run build   # -> dist/w2a-sdk.esm.js + dist/w2a-sdk.min.js
 ```
 
-Version 0.1.1 · demo/preview grade. Release hashes and the canonical core commit
+Version 0.1.2 · demo/preview grade. Release hashes and the canonical core commit
 are recorded in `release.json`.

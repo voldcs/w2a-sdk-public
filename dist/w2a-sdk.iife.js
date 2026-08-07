@@ -1,4 +1,4 @@
-/* w2a-src-sha256:6fca6f1d72243ace3096ddfae6cd66922422baf0784f0b8cfe395133ec48de87 */
+/* w2a-src-sha256:c976eec20c42f03385bedc35f805f111ced8430140151dfba7c29745397ead32 */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -307,6 +307,11 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
   }
   function foreignFullscreen() {
     return typeof document !== "undefined" && !!document.fullscreenElement;
+  }
+  function fullscreenBlocksOverlay() {
+    if (typeof document === "undefined") return false;
+    const element = document.fullscreenElement;
+    return !!(element && element !== document.documentElement);
   }
   function hasActivation() {
     const ua = typeof navigator !== "undefined" && navigator.userActivation;
@@ -809,7 +814,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         return { started: false, reason: "preload_expired" };
       }
       if (this.active) return { started: false, reason: "busy" };
-      if (foreignFullscreen()) return { started: false, reason: "fullscreen_conflict" };
+      if (fullscreenBlocksOverlay()) return { started: false, reason: "fullscreen_conflict" };
       rec.state = "claimed";
       delete this._preloads[key];
       if (rec.expiryTimer) {
@@ -1612,6 +1617,11 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
     _enterFullscreen(ctx) {
       ctx.framed = isFramed();
       ctx.presentation = "document";
+      if (foreignFullscreen() && !fullscreenBlocksOverlay()) {
+        ctx.fullscreen = "inherited";
+        ctx.presentation = "screen";
+        return;
+      }
       if (!ctx.framed && !browserChromeVisible()) {
         ctx.fullscreen = "unnecessary";
         ctx.presentation = "window";
