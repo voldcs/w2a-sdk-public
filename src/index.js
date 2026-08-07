@@ -269,7 +269,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
 // swapping `src` mid-flight, which restarts playback and re-buffers: the layout
 // already adapts to the new orientation on its own, so a swap would buy nothing
 // and cost the view.
-export function pickMediaFile(nodes, slotRatio) {
+function pickMediaFile(nodes, slotRatio) {
   const cands = []
   for (const n of nodes || []) {
     const url = (n.textContent || '').trim()
@@ -654,7 +654,7 @@ class W2ASDK {
         // deadline from activation, never as an allowance added to the film.
         videoRewardMs: 30000, videoStartTimeoutMs: 10000, videoStallTimeoutMs: 10000,
         maxVideoMs: 10000, maxPlayableMs: 20000,
-        minVisibleBeforeClickMs: 1000, requireVisible: true, preloadTtlMs: 30000,
+        requireVisible: true, preloadTtlMs: 30000,
         // 'auto' asks for sound and falls back to muted if the browser refuses.
         // 'muted' is for publishers whose own game audio must keep playing.
         audio: 'auto' },
@@ -714,6 +714,18 @@ class W2ASDK {
   showInterstitial(placement) { return this._show('interstitial', placement) }
   showRewarded(placement) { return this._show('rewarded', placement) }
 
+  /**
+   * Correlated host escape hatch for a show whose lifecycle went silent.
+   * Refuse a stale requestId so one watchdog can never tear down a later ad.
+   */
+  cancelActive(requestId, reason = 'host_cancelled') {
+    const ctx = this.active
+    if (!ctx || ctx.completed || !requestId || ctx.requestId !== requestId) return false
+    const safeReason = typeof reason === 'string' && reason ? reason.slice(0, 64) : 'host_cancelled'
+    this._finish(ctx, { state: 'failed', reason: safeReason })
+    return true
+  }
+
   async _show(format, placement) {
     if (!this.cfg) throw new Error('W2A.init was not called')
     if (this.active) {
@@ -737,7 +749,15 @@ class W2ASDK {
     const ctx = { requestId: cryptoId(), format, placement }
     this.active = ctx
     this._state({ ...ctx, state: 'loading' })
+    if (ctx.completed || this.active !== ctx) return
     const r = await this._requestAd(ctx.requestId, format, placement)
+    // A host watchdog can cancel while the request is in flight. Its terminal
+    // may start a newer show immediately, so the stale continuation must neither
+    // render nor tear down that newer owner when the network finally answers.
+    if (ctx.completed || this.active !== ctx) {
+      if (r && r.resp) this._release(ctx.requestId, r.resp)
+      return
+    }
     if (r.error) { this._finish(ctx, { state: 'failed', reason: r.error }); return } // active гарантированно освобождается
     const resp = r.resp
     if (!resp || resp.no_fill || !resp.creative) {
@@ -910,6 +930,10 @@ class W2ASDK {
     })
     if (this._preloads[key] !== rec) { this._release(requestId, resp); return { filled: true, ready: false, reason: 'superseded' } }
     if (!outcome.ok) { this._discardPreload(key, outcome.reason); return { filled: true, ready: false, reason: outcome.reason } }
+    if (Date.now() > rec.readyUntil) {
+      this._discardPreload(key, 'preload_expired')
+      return { filled: true, ready: false, reason: 'preload_expired' }
+    }
 
     rec.state = 'ready'
     // Self-expiry: a ready ad that is never shown releases itself, so the
@@ -919,9 +943,10 @@ class W2ASDK {
   }
 
   /** Advisory only. The correctness gate is tryShowReady(), which claims atomically. */
-  isReady(format, placement) {
+  isReady(format, placement, minValidityMs = 0) {
     const rec = this._preloads && this._preloads[format + '|' + placement]
-    return !!(rec && rec.state === 'ready' && Date.now() <= rec.readyUntil)
+    const headroom = Math.max(0, Number(minValidityMs) || 0)
+    return !!(rec && rec.state === 'ready' && Date.now() + headroom <= rec.readyUntil)
   }
 
   /**
@@ -1076,7 +1101,14 @@ class W2ASDK {
     // charge for an impression nobody could see and expire a preloaded ad.
     ctx._onActivate = []
     const whenActive = (fn) => { if (ctx.visible) fn(); else ctx._onActivate.push(fn) }
-    if (!hidden) { ctx.paused = true; this._emit('w2a_pause', { ...ctx, state: 'opened' }) }
+    if (!hidden) {
+      ctx.paused = true
+      this._emit('w2a_pause', { ...ctx, state: 'opened' })
+      if (ctx.completed || this.active !== ctx) {
+        this._release(ctx.requestId, resp)
+        return
+      }
+    }
     injectLayoutCss(document)
     const backdrop = el('div', null, { className: 'w2a-backdrop' })
     // The layout is driven by attributes, not by branching JS, so a rotation or a
@@ -1297,6 +1329,12 @@ class W2ASDK {
       // not a missing one.
       this._enterFullscreen(ctx)
       this._state({ ...ctx, state: 'opened' })
+      // A publisher can cancel synchronously from the public `opened` event.
+      // Stop before installing teardown state on a detached, completed show.
+      if (ctx.completed || this.active !== ctx) {
+        this._release(ctx.requestId, resp)
+        return
+      }
     }
 
     // Qualified impression is independent from reward and VAST completion.
@@ -1306,18 +1344,8 @@ class W2ASDK {
     // preloaded it. Stamped at activation for that reason.
     ctx.impStart = ctx.impStart || Date.now()
 
-    // --- click eligibility -------------------------------------------------
-    // An explicit state gate, NOT a "was the button armed long enough" timestamp:
-    // the old guard compared against a sentinel that stayed 0 until arming, so
-    // the comparison was false and any click reaching the handler early passed.
-    // The button also must never LOOK clickable while taps are silently eaten.
-    //
-    // The floor is measured as continuous VISIBLE time since the ad opened (not
-    // since the button appeared), so a watched video or a completed playable is
-    // not charged an extra second after the user has already engaged.
-    // 1000ms is OUR internal quality rule - it is not a published standard.
-    const CLICK_FLOOR_MS = 1000
-    const minVisibleMs = Math.max(CLICK_FLOOR_MS, Number(this.cfg.minVisibleBeforeClickMs) || 0)
+    // The CTA is available from the first rendered frame. clickState still
+    // enforces genuine-input and one-shot semantics without a time gate.
     let clickState = 'BLOCKED'      // BLOCKED -> READY -> CLICKED (one-shot)
     // Impression reporting lives on ctx, so EVERY terminal event carries it and
     // not just the CTA click: a host that closes with the X still has to
@@ -1334,15 +1362,12 @@ class W2ASDK {
     // `impressionConfirmed` (boolean) is the back-compat view and appears only
     // once the state has settled.
     let qualified = false
-    let armTimer = null
-
     // count only foreground-visible time; a backgrounded tab earns no dwell
     let visAccum = 0
-    // requireVisible=true (default) counts ONLY foreground-visible time, so an ad
-    // in a background tab never becomes clickable. Some embedded webviews report
-    // document.hidden incorrectly, which would leave the CTA permanently dead, so
-    // an integrator can opt out - and we record that fact on the terminal event
-    // instead of pretending visibility was verified.
+    // requireVisible=true (default) counts ONLY foreground-visible time. Some
+    // embedded webviews report document.hidden incorrectly, so a dwell-format
+    // integrator can opt out. Record that fact on the terminal event instead of
+    // pretending visibility was verified.
     const requireVisible = this.cfg.requireVisible !== false
     const isVideoCreative = c.type === 'vast' && !!c.vastUrl
     // A host may opt dwell formats out when its webview misreports visibility.
@@ -1366,9 +1391,8 @@ class W2ASDK {
     }
     // null (not 0) means "currently hidden": now() can legitimately BE 0 at the
     // start of a session, and a falsy check would freeze the dwell at zero.
-    // A PRELOADED overlay is in the DOM but invisible, so its dwell clock must
-    // not start until it is actually shown. Without this the anti-misclick floor
-    // was already satisfied the moment the ad appeared, and the CTA armed instantly.
+    // A PRELOADED overlay is in the DOM but invisible, so its billing and reward
+    // clocks must not start until the ad is actually shown.
     let visSince = (hidden || isHidden()) ? null : now()
     ctx._startVisible = () => { if (visSince === null && !isHidden()) visSince = now() }
     const visibleMs = () => visAccum + (visSince !== null ? now() - visSince : 0)
@@ -1414,13 +1438,6 @@ class W2ASDK {
       visibleDeadlines.push(arm)
       arm()
     })
-    // If the environment cannot measure (no getBoundingClientRect), do NOT block
-    // the button forever - an unmeasurable ad is treated as rendered.
-    const rendered = () => {
-      if (typeof backdrop.getBoundingClientRect !== 'function') return true
-      const r = backdrop.getBoundingClientRect()
-      return !r || (r.width > 0 && r.height > 0)
-    }
     // Assigned by the media branch below. Called BEFORE the visibility state is
     // updated, deliberately: the media has to close its current segment while
     // the ad is still counted as on screen, or the last sample before a hide is
@@ -1471,7 +1488,6 @@ class W2ASDK {
       // Every deadline measured in foreground time has to be re-armed: the clock
       // it is waiting on just stopped or started.
       for (const arm of visibleDeadlines) { try { arm() } catch { /* one deadline must not take the rest */ } }
-      scheduleArm()
     }
     teardown.visHandler = visHandler
     if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', visHandler)
@@ -1499,8 +1515,6 @@ class W2ASDK {
     // impression ratio is not an invariant was silently absent, and reporting
     // mixed these clicks in exactly as the comment promised it would not.
     ctx.ctaGatedByImpression = false
-    const scheduleArm = () => { if (clickState === 'BLOCKED' && rendered()) armCTA() }
-
     // Reveal the close button on a visible countdown. Only foreground time
     // counts, for the same reason the old dwell floor did: an ad "shown" in a
     // background tab has not been shown.
@@ -1563,9 +1577,6 @@ class W2ASDK {
         clearTimeout(to)
         ctx.impressionState = ok ? 'confirmed' : 'degraded'
         ctx.impressionConfirmed = ok
-        // the show may already be over; re-arming a torn-down overlay just
-        // re-queues a 60ms poll forever on the instance-wide timer list
-        if (!ctx.completed) scheduleArm()
         // A player who taps Install before the beacon comes back closes the ad
         // with `impressionState: 'pending'`, and that was the last word a
         // publisher ever heard on it. Sending a second `ad_state` would fix the
@@ -1603,7 +1614,6 @@ class W2ASDK {
         try { body = (await r.json()) || {} } catch (e) { /* empty/невалидный body -> ниже */ }
         settle(body.deduped !== true)
       }, () => settle(false))
-      scheduleArm()
     }
 
     // наполняем card по формату + подключаем триггер qualify
@@ -2302,6 +2312,7 @@ class W2ASDK {
     // `opened` rather than nothing: the ad IS on screen at this point, and the
     // published type says every payload carries a state.
     this._emit('w2a_pause', { ...ctx, state: 'opened' })
+    if (ctx.completed || this.active !== ctx) return
     // ORDER IS LOAD-BEARING. The queue holds the unmuted `video.play()` call,
     // and `requestFullscreen()` CONSUMES transient activation per the Fullscreen
     // spec ("consume user activation given pendingDoc's relevant global object").
@@ -2346,6 +2357,52 @@ class W2ASDK {
       coverage: !framed ? 'window' : (fs ? 'screen_if_gesture' : 'document'),
       viewport: typeof window !== 'undefined' ? [window.innerWidth, window.innerHeight] : null,
     }
+  }
+
+  _watchFullscreen(ctx) {
+    if (ctx._fsWatch || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return
+    ctx._fsWatch = () => {
+      if (!document.fullscreenElement && ctx.fullscreenOwned) {
+        ctx.fullscreenOwned = false
+        ctx.fullscreen = 'exited_by_user'
+        ctx.presentation = 'document'
+      }
+    }
+    document.addEventListener('fullscreenchange', ctx._fsWatch)
+  }
+
+  _fullscreenEntered(ctx) {
+    // A later show may cover the same root by the time a cancelled request is
+    // fulfilled. Hand SDK ownership to that visible show instead of dropping
+    // fullscreen under it.
+    const successor = ctx.completed && this.active !== ctx ? this.active : null
+    if (successor && !successor.completed && successor.visible && successor.overlay) {
+      ctx.fullscreenOwned = false
+      successor.fullscreen = 'entered'
+      successor.presentation = 'screen'
+      successor.fullscreenOwned = true
+      this._watchFullscreen(successor)
+      return
+    }
+    ctx.fullscreen = 'entered'
+    ctx.presentation = 'screen'
+    ctx.fullscreenOwned = true
+    if (ctx.completed) this._exitFullscreen(ctx)
+    else this._watchFullscreen(ctx)
+  }
+
+  _trackFullscreen(ctx, pending) {
+    if (!pending || typeof pending.then !== 'function') return
+    ctx._fsPending = pending
+    pending.then(() => {
+      if (ctx._fsPending !== pending) return
+      ctx._fsPending = null
+      this._fullscreenEntered(ctx)
+    }, () => {
+      if (ctx._fsPending !== pending) return
+      ctx._fsPending = null
+      if (!ctx.completed) ctx.fullscreen = 'denied'
+    })
   }
 
   /**
@@ -2394,30 +2451,12 @@ class W2ASDK {
     // the game we are supposed to be sitting on top of.
     try {
       const p = root.requestFullscreen()
-      if (p && p.then) {
-        p.then(() => {
-          ctx.fullscreen = 'entered'; ctx.presentation = 'screen'; ctx.fullscreenOwned = true
-        }, () => {
-          // Rejects with TypeError when the policy blocked it. Not a show
-          // failure - we simply stay document-sized, and say so.
-          ctx.fullscreen = 'denied'
-        })
-      }
-      // The user (or the OS) can drop out at any moment. Escape must NOT close
-      // the ad: our overlay still covers the document, the ad is still visible
-      // and still billable. It must only relinquish ownership, so teardown does
-      // not yank a fullscreen that now belongs to the game. Never re-request:
-      // there is no activation in this handler, so it would reject and fight
-      // the user besides.
-      ctx._fsWatch = () => {
-        if (!document.fullscreenElement && ctx.fullscreenOwned) {
-          ctx.fullscreenOwned = false
-          ctx.fullscreen = 'exited_by_user'
-          ctx.presentation = 'document'
-        }
-      }
-      document.addEventListener('fullscreenchange', ctx._fsWatch)
-    } catch { ctx.fullscreen = 'denied' }
+      if (p && p.then) this._trackFullscreen(ctx, p)
+      this._watchFullscreen(ctx)
+    } catch {
+      ctx._fsPending = null
+      if (!ctx.completed) ctx.fullscreen = 'denied'
+    }
   }
 
   /**
@@ -2440,12 +2479,11 @@ class W2ASDK {
       ctx.fullscreen = 'requested'
       try {
         const p = root.requestFullscreen()
-        if (p && p.then) {
-          p.then(() => {
-            ctx.fullscreen = 'entered'; ctx.presentation = 'screen'; ctx.fullscreenOwned = true
-          }, () => { ctx.fullscreen = 'denied' })
-        }
-      } catch { ctx.fullscreen = 'denied' }
+        if (p && p.then) this._trackFullscreen(ctx, p)
+      } catch {
+        ctx._fsPending = null
+        if (!ctx.completed) ctx.fullscreen = 'denied'
+      }
     }
     ctx.overlay.addEventListener('pointerdown', ctx._fsRetry, { once: true, capture: true })
   }
@@ -2653,9 +2691,8 @@ function localeRegion() {
   } catch (e) { return null }
 }
 
-// monotonic: wall-clock jumps (NTP, sleep) must not grant click eligibility.
-// _nowFn is a TEST seam (W2A.__setNow) so the click floor can be exercised
-// without a test sleeping through it; production always uses performance.now.
+// Monotonic: wall-clock jumps (NTP, sleep) must not grant visible-time billing
+// or rewards. _nowFn is a TEST seam; production always uses performance.now.
 let _nowFn = null
 function now() {
   if (_nowFn) return _nowFn()

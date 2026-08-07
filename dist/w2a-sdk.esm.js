@@ -1,4 +1,4 @@
-/* w2a-src-sha256:3930be1abe2f8e26b823faeed94faff84c606655bbd99c6f2250aedd404b0814 */
+/* w2a-src-sha256:40e5d3f718fbbdf56d7ce71a3018708cf2e66c68eda326e6fa1b84201cc892e4 */
 
 // src/index.js
 var STATES = ["loading", "opened", "closed", "rewarded", "failed", "no_fill", "unsupported"];
@@ -533,7 +533,6 @@ var W2ASDK = class {
         videoStallTimeoutMs: 1e4,
         maxVideoMs: 1e4,
         maxPlayableMs: 2e4,
-        minVisibleBeforeClickMs: 1e3,
         requireVisible: true,
         preloadTtlMs: 3e4,
         // 'auto' asks for sound and falls back to muted if the browser refuses.
@@ -590,6 +589,17 @@ var W2ASDK = class {
   showRewarded(placement) {
     return this._show("rewarded", placement);
   }
+  /**
+   * Correlated host escape hatch for a show whose lifecycle went silent.
+   * Refuse a stale requestId so one watchdog can never tear down a later ad.
+   */
+  cancelActive(requestId, reason = "host_cancelled") {
+    const ctx = this.active;
+    if (!ctx || ctx.completed || !requestId || ctx.requestId !== requestId) return false;
+    const safeReason = typeof reason === "string" && reason ? reason.slice(0, 64) : "host_cancelled";
+    this._finish(ctx, { state: "failed", reason: safeReason });
+    return true;
+  }
   async _show(format, placement) {
     if (!this.cfg) throw new Error("W2A.init was not called");
     if (this.active) {
@@ -601,7 +611,12 @@ var W2ASDK = class {
     const ctx = { requestId: cryptoId(), format, placement };
     this.active = ctx;
     this._state({ ...ctx, state: "loading" });
+    if (ctx.completed || this.active !== ctx) return;
     const r = await this._requestAd(ctx.requestId, format, placement);
+    if (ctx.completed || this.active !== ctx) {
+      if (r && r.resp) this._release(ctx.requestId, r.resp);
+      return;
+    }
     if (r.error) {
       this._finish(ctx, { state: "failed", reason: r.error });
       return;
@@ -768,14 +783,19 @@ var W2ASDK = class {
       this._discardPreload(key, outcome.reason);
       return { filled: true, ready: false, reason: outcome.reason };
     }
+    if (Date.now() > rec.readyUntil) {
+      this._discardPreload(key, "preload_expired");
+      return { filled: true, ready: false, reason: "preload_expired" };
+    }
     rec.state = "ready";
     rec.expiryTimer = setTimeout(() => this._discardPreload(key, "preload_expired"), Math.max(0, rec.readyUntil - Date.now()));
     return { filled: true, ready: true, requestId, readinessProof: ctx.readinessProof };
   }
   /** Advisory only. The correctness gate is tryShowReady(), which claims atomically. */
-  isReady(format, placement) {
+  isReady(format, placement, minValidityMs = 0) {
     const rec = this._preloads && this._preloads[format + "|" + placement];
-    return !!(rec && rec.state === "ready" && Date.now() <= rec.readyUntil);
+    const headroom = Math.max(0, Number(minValidityMs) || 0);
+    return !!(rec && rec.state === "ready" && Date.now() + headroom <= rec.readyUntil);
   }
   /**
    * Fail-closed, synchronous, single-step claim-and-show. This is the mediation
@@ -930,6 +950,10 @@ var W2ASDK = class {
     if (!hidden) {
       ctx.paused = true;
       this._emit("w2a_pause", { ...ctx, state: "opened" });
+      if (ctx.completed || this.active !== ctx) {
+        this._release(ctx.requestId, resp);
+        return;
+      }
     }
     injectLayoutCss(document);
     const backdrop = el("div", null, { className: "w2a-backdrop" });
@@ -1053,13 +1077,14 @@ var W2ASDK = class {
       ctx.visible = true;
       this._enterFullscreen(ctx);
       this._state({ ...ctx, state: "opened" });
+      if (ctx.completed || this.active !== ctx) {
+        this._release(ctx.requestId, resp);
+        return;
+      }
     }
     ctx.impStart = ctx.impStart || Date.now();
-    const CLICK_FLOOR_MS = 1e3;
-    const minVisibleMs = Math.max(CLICK_FLOOR_MS, Number(this.cfg.minVisibleBeforeClickMs) || 0);
     let clickState = "BLOCKED";
     let qualified = false;
-    let armTimer = null;
     let visAccum = 0;
     const requireVisible = this.cfg.requireVisible !== false;
     const isVideoCreative = c.type === "vast" && !!c.vastUrl;
@@ -1108,11 +1133,6 @@ var W2ASDK = class {
       visibleDeadlines.push(arm);
       arm();
     });
-    const rendered = () => {
-      if (typeof backdrop.getBoundingClientRect !== "function") return true;
-      const r = backdrop.getBoundingClientRect();
-      return !r || r.width > 0 && r.height > 0;
-    };
     let onVisibilityChange = null;
     const teardown = { visHandler: null, playableMsg: null, rewardSnapshot: null, timers: [] };
     showTeardown.set(ctx, teardown);
@@ -1151,7 +1171,6 @@ var W2ASDK = class {
         } catch {
         }
       }
-      scheduleArm();
     };
     teardown.visHandler = visHandler;
     if (typeof document.addEventListener === "function") document.addEventListener("visibilitychange", visHandler);
@@ -1163,9 +1182,6 @@ var W2ASDK = class {
     };
     armCTA();
     ctx.ctaGatedByImpression = false;
-    const scheduleArm = () => {
-      if (clickState === "BLOCKED" && rendered()) armCTA();
-    };
     let closeArmed = false;
     const unlockClose = () => {
       closeArmed = true;
@@ -1200,7 +1216,6 @@ var W2ASDK = class {
         clearTimeout(to);
         ctx.impressionState = ok ? "confirmed" : "degraded";
         ctx.impressionConfirmed = ok;
-        if (!ctx.completed) scheduleArm();
         this._emit("w2a_impression", {
           requestId: ctx.requestId,
           format: ctx.format,
@@ -1234,7 +1249,6 @@ var W2ASDK = class {
         }
         settle(body.deduped !== true);
       }, () => settle(false));
-      scheduleArm();
     };
     let videoStarted = false;
     let rewardPath = "dwell";
@@ -1695,6 +1709,7 @@ var W2ASDK = class {
     if (ctx._startVisible) ctx._startVisible();
     ctx.paused = true;
     this._emit("w2a_pause", { ...ctx, state: "opened" });
+    if (ctx.completed || this.active !== ctx) return;
     const queued = ctx._onActivate || [];
     ctx._onActivate = [];
     for (const fn of queued) {
@@ -1721,6 +1736,46 @@ var W2ASDK = class {
       coverage: !framed ? "window" : fs ? "screen_if_gesture" : "document",
       viewport: typeof window !== "undefined" ? [window.innerWidth, window.innerHeight] : null
     };
+  }
+  _watchFullscreen(ctx) {
+    if (ctx._fsWatch || typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+    ctx._fsWatch = () => {
+      if (!document.fullscreenElement && ctx.fullscreenOwned) {
+        ctx.fullscreenOwned = false;
+        ctx.fullscreen = "exited_by_user";
+        ctx.presentation = "document";
+      }
+    };
+    document.addEventListener("fullscreenchange", ctx._fsWatch);
+  }
+  _fullscreenEntered(ctx) {
+    const successor = ctx.completed && this.active !== ctx ? this.active : null;
+    if (successor && !successor.completed && successor.visible && successor.overlay) {
+      ctx.fullscreenOwned = false;
+      successor.fullscreen = "entered";
+      successor.presentation = "screen";
+      successor.fullscreenOwned = true;
+      this._watchFullscreen(successor);
+      return;
+    }
+    ctx.fullscreen = "entered";
+    ctx.presentation = "screen";
+    ctx.fullscreenOwned = true;
+    if (ctx.completed) this._exitFullscreen(ctx);
+    else this._watchFullscreen(ctx);
+  }
+  _trackFullscreen(ctx, pending) {
+    if (!pending || typeof pending.then !== "function") return;
+    ctx._fsPending = pending;
+    pending.then(() => {
+      if (ctx._fsPending !== pending) return;
+      ctx._fsPending = null;
+      this._fullscreenEntered(ctx);
+    }, () => {
+      if (ctx._fsPending !== pending) return;
+      ctx._fsPending = null;
+      if (!ctx.completed) ctx.fullscreen = "denied";
+    });
   }
   /**
    * Fullscreen is a property of a show, not a state of it: it never changes
@@ -1762,25 +1817,11 @@ var W2ASDK = class {
     ctx.fullscreen = "requested";
     try {
       const p = root.requestFullscreen();
-      if (p && p.then) {
-        p.then(() => {
-          ctx.fullscreen = "entered";
-          ctx.presentation = "screen";
-          ctx.fullscreenOwned = true;
-        }, () => {
-          ctx.fullscreen = "denied";
-        });
-      }
-      ctx._fsWatch = () => {
-        if (!document.fullscreenElement && ctx.fullscreenOwned) {
-          ctx.fullscreenOwned = false;
-          ctx.fullscreen = "exited_by_user";
-          ctx.presentation = "document";
-        }
-      };
-      document.addEventListener("fullscreenchange", ctx._fsWatch);
+      if (p && p.then) this._trackFullscreen(ctx, p);
+      this._watchFullscreen(ctx);
     } catch {
-      ctx.fullscreen = "denied";
+      ctx._fsPending = null;
+      if (!ctx.completed) ctx.fullscreen = "denied";
     }
   }
   /**
@@ -1807,17 +1848,10 @@ var W2ASDK = class {
       ctx.fullscreen = "requested";
       try {
         const p = root.requestFullscreen();
-        if (p && p.then) {
-          p.then(() => {
-            ctx.fullscreen = "entered";
-            ctx.presentation = "screen";
-            ctx.fullscreenOwned = true;
-          }, () => {
-            ctx.fullscreen = "denied";
-          });
-        }
+        if (p && p.then) this._trackFullscreen(ctx, p);
       } catch {
-        ctx.fullscreen = "denied";
+        ctx._fsPending = null;
+        if (!ctx.completed) ctx.fullscreen = "denied";
       }
     };
     ctx.overlay.addEventListener("pointerdown", ctx._fsRetry, { once: true, capture: true });
@@ -1978,6 +2012,5 @@ var W2A = new W2ASDK();
 if (typeof window !== "undefined") window.W2A = W2A;
 export {
   W2A,
-  createRewardEvidence,
-  pickMediaFile
+  createRewardEvidence
 };
