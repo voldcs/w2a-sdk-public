@@ -1,4 +1,4 @@
-/* w2a-src-sha256:40e5d3f718fbbdf56d7ce71a3018708cf2e66c68eda326e6fa1b84201cc892e4 */
+/* w2a-src-sha256:2996a03f4093d1200f96dea048173bed04b23377b7deba755c7ffa03b00ba54f */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -678,6 +678,9 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         // sent it, so a publisher could not actually set one - and a test could
         // not force a real no-fill decision through the real auction.
         ...this.cfg.floorCpm != null ? { floorCpm: this.cfg.floorCpm } : {},
+        // Internal harness capability. The server verifies the signature and
+        // derives traffic class; there is deliberately no client-set class flag.
+        ...this.cfg.diagnosticCapability ? { diagnosticCapability: this.cfg.diagnosticCapability } : {},
         consent_state: this._readConsent(),
         lang: navigator.language,
         ua: navigator.userAgent,

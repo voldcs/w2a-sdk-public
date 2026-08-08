@@ -9,19 +9,19 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: not published.** At the 2026-08-07 pre-release check, the
-repository was private, the 0.1.3 tag was absent, and jsDelivr and npm were
-unavailable. The snippets below identify the intended immutable release. Do not
-integrate them until the exact CDN URL returns JavaScript and its SHA-256 and SRI
-match `release.json`.
+**Release status: candidate.** Version 0.1.4 supersedes the unpublished 0.1.3
+candidate, whose SDK source changed after that pin was cut. The snippets below
+identify the intended immutable release. Do not integrate them until the exact
+CDN URL returns JavaScript and its SHA-256 and SRI match `release.json`; npm
+remains unpublished.
 
 ## Install / include after publication
 
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.3/dist/w2a-sdk.min.js"
-        integrity="sha384-/H27mjD0D85KMJ1d1xyTz03f7VUAyTDZjEG+dJiVaDGClsX8YQt48kLEu+QOAO5o"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.4/dist/w2a-sdk.min.js"
+        integrity="sha384-bRqjo2ngZ5XAFyxPfrRT77jmH5zySBS9Rym2efO6J0rULD1G8siSQFSllsP1g/hx"
         crossorigin="anonymous"></script>
 ```
 
@@ -235,5 +235,5 @@ npm pack --dry-run
 ```
 
 The build is pinned to official `esbuild` 0.28.1 and must reproduce all three
-committed bundles byte-for-byte. Version 0.1.3, demo/preview grade. Release
+committed bundles byte-for-byte. Version 0.1.4, demo/preview grade. Release
 hashes and the canonical core commit are recorded in `release.json`.

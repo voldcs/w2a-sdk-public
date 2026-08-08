@@ -800,6 +800,10 @@ class W2ASDK {
       // sent it, so a publisher could not actually set one - and a test could
       // not force a real no-fill decision through the real auction.
       ...(this.cfg.floorCpm != null ? { floorCpm: this.cfg.floorCpm } : {}),
+      // Internal harness capability. The server verifies the signature and
+      // derives traffic class; there is deliberately no client-set class flag.
+      ...(this.cfg.diagnosticCapability
+        ? { diagnosticCapability: this.cfg.diagnosticCapability } : {}),
       consent_state: this._readConsent(),
       lang: navigator.language,
       ua: navigator.userAgent,

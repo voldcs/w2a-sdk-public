@@ -26,17 +26,17 @@ const execFileAsync = promisify(execFile)
 const CANONICAL = 'https://w2a-ads-demo.azurewebsites.net'
 const RETIRED = ['w2a-demo.onrender.com']
 const RELEASE_SNAPSHOT = Object.freeze({
-  version: '0.1.3',
-  coreCommit: '8eb3ec208af54368824c9d7e993ba2fecd323d16',
-  sourceSha256: '40e5d3f718fbbdf56d7ce71a3018708cf2e66c68eda326e6fa1b84201cc892e4',
+  version: '0.1.4',
+  coreCommit: '264cab4f04bff9cd9e895201abae0461f728914a',
+  sourceSha256: '2996a03f4093d1200f96dea048173bed04b23377b7deba755c7ffa03b00ba54f',
   typesSha256: 'c340d2b7fcafd814eac934f312af5fb302b9eb7af14854e5df96467097c83860',
   licenseSha256: '6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e',
   artifacts: {
-    'dist/w2a-sdk.esm.js': '9f5ecd3116c8451b632f481a21d46052f7b5597b7b8112889c7f926abb081d54',
-    'dist/w2a-sdk.iife.js': '85cb723c5defe52162ceb0da631a4c80a635840f0ec814797e4aa4b8e0ea7610',
-    'dist/w2a-sdk.min.js': '2e4cb5a658b26ff53dd8c596aa9af1612008fb303c54fe3188b4372d92f6f563',
+    'dist/w2a-sdk.esm.js': 'af3ea2b3162e91d40037789c5c662b3aa4d0cf549443ec6f94b6b61dabd64b0e',
+    'dist/w2a-sdk.iife.js': '2ced83bf991eb443dcee5c1defb4a5471978901a56615d2882b6f88b4c7fe451',
+    'dist/w2a-sdk.min.js': '9c06be5ddb6337b13a788791e5e2f968aadcb1256078cc1d7c85abb4310f3ece',
   },
-  minSri: 'sha384-/H27mjD0D85KMJ1d1xyTz03f7VUAyTDZjEG+dJiVaDGClsX8YQt48kLEu+QOAO5o',
+  minSri: 'sha384-bRqjo2ngZ5XAFyxPfrRT77jmH5zySBS9Rym2efO6J0rULD1G8siSQFSllsP1g/hx',
 })
 
 async function sha(algorithm, path) {
@@ -132,7 +132,7 @@ test('release metadata pins one immutable SDK version', async () => {
   assert.ok(!readme.includes('@main'))
 })
 
-test('0.1.3 metadata identifies the reviewed core snapshot and build tool', async () => {
+test('0.1.4 metadata identifies the reviewed core snapshot and build tool', async () => {
   const release = JSON.parse(await readFile(join(ROOT, 'release.json'), 'utf8'))
 
   assert.equal(release.version, RELEASE_SNAPSHOT.version)
@@ -143,9 +143,9 @@ test('0.1.3 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
     status: 'unpublished_candidate',
-    checkedAt: '2026-08-07T20:23:27Z',
+    checkedAt: '2026-08-08T11:06:03Z',
     githubVisibility: 'private',
-    tag: '0.1.3',
+    tag: '0.1.4',
     tagPresent: false,
     jsdelivrHttpStatus: 404,
     npmRegistryHttpStatus: 404,
@@ -246,7 +246,8 @@ test('public config types cover supported runtime keys without exposing internal
   const runtimeKeys = new Set(Array.from(source.matchAll(/this\.cfg(?:\?)?\.([A-Za-z_$][\w$]*)/g), (m) => m[1]))
   const configBody = types.match(/export interface W2AConfig \{([\s\S]*?)\n\}/)?.[1] || ''
   const declaredKeys = new Set(Array.from(configBody.matchAll(/^\s*([A-Za-z_$][\w$]*)\??:/gm), (m) => m[1]))
-  const runtimeOnly = new Set(['allowSyntheticClicks', 'cell', 'debugOverlay', 'deviceOverride', 'siteId'])
+  const runtimeOnly = new Set(['allowSyntheticClicks', 'cell', 'debugOverlay', 'deviceOverride',
+    'diagnosticCapability', 'siteId'])
   const deprecatedNoops = new Set(['antiMisclickMs'])
   const missing = [...runtimeKeys].filter((key) => !declaredKeys.has(key) && !runtimeOnly.has(key)).sort()
   const unused = [...declaredKeys].filter((key) => !runtimeKeys.has(key) && !deprecatedNoops.has(key)).sort()
@@ -563,13 +564,12 @@ test('AppsFlyer guidance separates generic ingress from unavailable account rout
   assert.doesNotMatch(integration, /## Install postbacks \(AppsFlyer Push API\)/)
 })
 
-test('README labels 0.1.3 as an unpublished release candidate', async () => {
+test('README labels 0.1.4 as a release candidate that supersedes 0.1.3', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
 
-  assert.ok(readme.includes('Release status: not published'))
-  assert.ok(readme.includes('repository was private'))
-  assert.ok(readme.includes('0.1.3 tag was absent'))
-  assert.match(readme, /jsDelivr and npm were\s+unavailable/)
+  assert.ok(readme.includes('Release status: candidate'))
+  assert.ok(readme.includes('supersedes the unpublished 0.1.3'))
+  assert.ok(readme.includes('npm\nremains unpublished'))
 })
 
 test('the build uses one exact official esbuild dependency and is byte reproducible', async () => {
