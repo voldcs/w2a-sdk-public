@@ -9,13 +9,14 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: candidate.** Version 0.1.4 supersedes the unpublished 0.1.3
-candidate, whose SDK source changed after that pin was cut. The snippets below
-identify the intended immutable release. Do not integrate them until the exact
-CDN URL returns JavaScript and its SHA-256 and SRI match `release.json`; npm
-remains unpublished.
+**Release status: published on the CDN.** Version 0.1.4 supersedes the
+unpublished 0.1.3 candidate, whose SDK source changed after that pin was cut. At
+the 2026-08-08T11:09:16Z check the repository was public, the 0.1.4 tag was present,
+and the exact CDN URL below returned JavaScript whose SHA-256 and SRI match
+`release.json`. npm is still unpublished, so use the CDN snippet, not the npm
+one.
 
-## Install / include after publication
+## Install / include
 
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
