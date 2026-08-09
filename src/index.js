@@ -2681,6 +2681,18 @@ function detectDevice() {
     else if (uad && typeof uad.mobile === 'boolean') device_type = uad.mobile ? 'mobile' : 'desktop'
     else if (/Mobi|iPhone|iPod/i.test(ua)) device_type = 'mobile'
     else if (os === 'windows' || os === 'macos' || os === 'linux') device_type = 'desktop'
+    // A phone OS cannot be running on a desktop, and the backend refuses
+    // `desktop` outright - so when Client Hints and the UA string disagree,
+    // that pair is not a device, it is a wrong answer that costs a fill.
+    // Seen on the stand: six requests logged as `desktop_device: os=android
+    // device=desktop`, and the local Home Makeover acceptance reproduced it -
+    // an Android UA arrives while userAgentData still reports the host as
+    // desktop (embedded WebViews, UA overrides, hardened browsers). The UA
+    // string named the OS, so trust it over the hint it contradicts and fall
+    // back to the tablet/mobile split the UA itself already carries.
+    if ((os === 'android' || os === 'ios') && device_type === 'desktop') {
+      device_type = /Mobi|iPhone|iPod/i.test(ua) ? 'mobile' : 'tablet'
+    }
     return { os, device_type }
   } catch (e) { return { os: 'unknown', device_type: 'unknown' } }
 }

@@ -1,4 +1,4 @@
-/* w2a-src-sha256:2996a03f4093d1200f96dea048173bed04b23377b7deba755c7ffa03b00ba54f */
+/* w2a-src-sha256:3ab6f8017adec6a284ba1683ce96283e92346adc8304ce48dc31b65ebe9fd0d4 */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -2010,6 +2010,9 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       else if (uad && typeof uad.mobile === "boolean") device_type = uad.mobile ? "mobile" : "desktop";
       else if (/Mobi|iPhone|iPod/i.test(ua)) device_type = "mobile";
       else if (os === "windows" || os === "macos" || os === "linux") device_type = "desktop";
+      if ((os === "android" || os === "ios") && device_type === "desktop") {
+        device_type = /Mobi|iPhone|iPod/i.test(ua) ? "mobile" : "tablet";
+      }
       return { os, device_type };
     } catch (e) {
       return { os: "unknown", device_type: "unknown" };

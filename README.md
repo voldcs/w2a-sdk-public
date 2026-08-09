@@ -9,20 +9,19 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: published on the CDN.** Version 0.1.4 supersedes the
-unpublished 0.1.3 candidate, whose SDK source changed after that pin was cut. At
-the 2026-08-08T11:09:16Z check the repository was public, the 0.1.4 tag was present,
-and the exact CDN URL below returned JavaScript whose SHA-256 and SRI match
-`release.json`. npm is still unpublished, so use the CDN snippet, not the npm
-one.
+**Release status: candidate.** Version 0.1.5 supersedes the published 0.1.4:
+the SDK stopped reporting a phone as a desktop when Client Hints contradict the
+user-agent string, which the stand refuses outright. Do not integrate the
+snippets below until the exact CDN URL returns JavaScript and its SHA-256 and
+SRI match `release.json`; npm is still unpublished.
 
 ## Install / include
 
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.4/dist/w2a-sdk.min.js"
-        integrity="sha384-bRqjo2ngZ5XAFyxPfrRT77jmH5zySBS9Rym2efO6J0rULD1G8siSQFSllsP1g/hx"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.5/dist/w2a-sdk.min.js"
+        integrity="sha384-XKEj/lbGky6XiHdptnBsc6PpR7zt/fxFRBuR6NRj+QIpIByayx6iY1kJBj5FCJC2"
         crossorigin="anonymous"></script>
 ```
 
@@ -236,5 +235,5 @@ npm pack --dry-run
 ```
 
 The build is pinned to official `esbuild` 0.28.1 and must reproduce all three
-committed bundles byte-for-byte. Version 0.1.4, demo/preview grade. Release
+committed bundles byte-for-byte. Version 0.1.5, demo/preview grade. Release
 hashes and the canonical core commit are recorded in `release.json`.

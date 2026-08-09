@@ -1,6 +1,6 @@
 {
   "name": "@w2a/sdk",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "W2A web-to-app ad SDK for web games (Portal Tag runtime)",
   "type": "module",
   "main": "dist/w2a-sdk.esm.js",
