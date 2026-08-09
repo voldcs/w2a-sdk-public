@@ -9,11 +9,11 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: candidate.** Version 0.1.5 supersedes the published 0.1.4:
-the SDK stopped reporting a phone as a desktop when Client Hints contradict the
-user-agent string, which the stand refuses outright. Do not integrate the
-snippets below until the exact CDN URL returns JavaScript and its SHA-256 and
-SRI match `release.json`; npm is still unpublished.
+**Release status: published on the CDN.** Version 0.1.5 supersedes 0.1.4: the
+SDK stopped reporting a phone as a desktop when Client Hints contradict the
+user-agent string, which the stand refuses outright. At the 2026-08-09T09:32:33Z
+check the 0.1.5 tag was present and the exact CDN URL below returned JavaScript
+whose SHA-256 and SRI match `release.json`. npm is still unpublished.
 
 ## Install / include
 
