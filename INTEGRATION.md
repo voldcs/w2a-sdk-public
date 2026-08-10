@@ -83,8 +83,11 @@ the attribution-link parameter name.
 ### Opportunity id (`af_sub4`), optional but worth configuring
 
 Every fill also carries an **opportunity id** - a server-minted token of the form
-`opp_` plus 32 hex, returned to the caller as `opportunityId` in the ad response
-and sent outward on the click as `af_sub4`.
+`opp_` plus 40 hex, returned to the caller as `opportunityId` in the ad response
+and sent outward on the click as `af_sub4`. Every identifier we mint - request,
+impression, click and opportunity - now shares that length; it follows
+AppLovin's `EVENT_ID`, whose documented example is 40 hex characters, so partner
+tooling sized for that format needs no special case here.
 
 It exists so an advertiser can line an install up with the specific ad
 opportunity in their own analytics, without asking us for the join. It is an
