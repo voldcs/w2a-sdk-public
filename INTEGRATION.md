@@ -80,39 +80,6 @@ raw data use `af_sub1`. Export and Pull CSV reports label it `Sub param 1`. Chec
 the exact product surface before mapping a field; do not infer a CSV header from
 the attribution-link parameter name.
 
-### Opportunity id (`af_sub4`), optional but worth configuring
-
-Every fill also carries an **opportunity id** - a server-minted token of the form
-`opp_` plus 40 hex, returned to the caller as `opportunityId` in the ad response
-and sent outward on the click as `af_sub4`. Every identifier we mint - request,
-impression, click and opportunity - now shares that length; it follows
-AppLovin's `EVENT_ID`, whose documented example is 40 hex characters, so partner
-tooling sized for that format needs no special case here.
-
-It exists so an advertiser can line an install up with the specific ad
-opportunity in their own analytics, without asking us for the join. It is an
-identifier only: it authorises nothing, contains no user data, and is scoped to
-one opportunity. It is not the attribution key - `af_sub1` still is, and nothing
-about that changes.
-
-Two properties worth knowing:
-
-- A replayed click publishes the **same** opportunity id. The value is stored on
-  the winning request row and read back on every hit, so it survives a restart
-  and a back-button replay. Our own click is still counted once.
-- **Adding `af_sub4` to the click link does not put it in your postback.** It has
-  to be added explicitly to the install-postback or raw-export template on the
-  AppsFlyer side. Until that is done the value goes out and never comes back,
-  and everything else keeps working - which is exactly why it is easy to miss.
-
-We record what we receive: a postback with no `af_sub4` is logged as
-`af_sub4=absent`, and one whose value disagrees with ours as `af_sub4=MISMATCH`.
-Both still attribute normally, because the join is `af_sub1`. An echoed value is
-never used to decide which opportunity an install belongs to.
-
-For Adjust, the same token maps onto a dynamic callback parameter -
-`w2a_opportunity_id` on the click link, `{dcp_w2a_opportunity_id}` in the install
-callback - and the click id keeps its own separate field.
 
 ### What our 200 means
 
