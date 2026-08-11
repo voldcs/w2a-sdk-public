@@ -96,7 +96,10 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
 .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-listing{
  align-items:center;gap:6px}
 .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-cta{
- margin:12px 0 0;min-width:220px;min-height:58px;font-size:19px}
+ margin:12px 0 0;
+ min-width:220px;min-width:clamp(220px,84.6vmin,330px);
+ min-height:58px;min-height:clamp(58px,22.3vmin,87px);
+ font-size:19px;font-size:clamp(19px,7.44vmin,29px)}
 .w2a-headline{margin:0;color:#fff;font-size:17px;line-height:1.2;font-weight:700;
  text-shadow:0 2px 8px rgba(0,0,0,.8);
  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -137,13 +140,33 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
    and silently won, which put the Install pill next to the icon on the LEFT of
    the screen. The end-card rule that re-centres it is more specific, so it still
    wins. */
+/* SIZE: PROPORTIONAL BETWEEN TWO FIXED ENDS.
+   The button read as small against the creative, so it is bigger - as a ratio,
+   not a constant, because a phone and a tablet do not want the same pixels.
+   The two ends are what keep a ratio honest:
+     floor   = the OLD size. vmin measures the viewport the SDK is embedded in,
+               not the device, so a small slot would otherwise make the button
+               smaller than before - turning "1.5x bigger" into "smaller" in
+               exactly the places it is already hard to tap.
+     ceiling = the old size times 1.5, which is what was asked for. Without it a
+               768px short side gives 2x, and a tablet gets a banner.
+   Between them it tracks vmin, calibrated so a 390x844 phone lands exactly on
+   the ceiling: 52 -> 78, 17 -> 26, 30 -> 45.
+   vmin rather than vw or vh: it is the short side, so the button is the same
+   size before and after a rotation, and a short landscape viewport shrinks it
+   without needing a media query to catch it.
+   Each clamp is preceded by the plain value it clamps to. clamp() is Safari
+   13.1 and Chrome 79; an engine older than that drops the whole declaration,
+   and losing min-height entirely is worse than losing the proportionality. */
 .w2a-cta{pointer-events:auto;touch-action:manipulation;appearance:none;
  display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
- min-height:52px;margin:0 0 0 auto;padding:0 30px;
+ min-height:52px;min-height:clamp(52px,20vmin,78px);margin:0 0 0 auto;
+ padding:0 30px;padding:0 clamp(30px,11.5vmin,45px);max-width:100%;
  border:0;border-radius:999px;
  background:linear-gradient(180deg,#35d17e 0%,#12a55b 100%);color:#fff;
  box-shadow:0 6px 22px rgba(0,0,0,.45);
- font:inherit;font-size:17px;line-height:1.2;font-weight:700;text-align:center;
+ font:inherit;font-size:17px;font-size:clamp(17px,6.67vmin,26px);
+ line-height:1.2;font-weight:700;text-align:center;
  white-space:nowrap;text-decoration:none;cursor:pointer;
  transition:filter .2s,transform .1s}
 .w2a-cta:active{filter:brightness(.94);transform:scale(.98)}
@@ -200,7 +223,8 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
   width:78px;height:78px;border-radius:18px}
  .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-headline{font-size:21px}
  .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-cta{
-  margin-top:6px;min-height:50px;font-size:17px}}
+  margin-top:6px;min-height:50px;min-height:clamp(50px,19.2vmin,75px);
+  font-size:17px;font-size:clamp(17px,6.67vmin,26px)}}
 /* Under ~400px of height the end card has to give something up. It gives up the
    store name and shrinks the icon, in that order: the name is the least
    load-bearing line on the card, and the button is the reason the card exists. */
@@ -209,6 +233,18 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
   width:56px;height:56px;border-radius:14px}
  .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-headline{font-size:19px}
  .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-store-name{display:none}}
+/* Below ~340px of height the card still has to give something up, even with a
+   proportional button: measured, it overflowed its own panel at 640x300. The
+   order of sacrifice is unchanged - icon and subtitle first, button last. The
+   button itself needs no rule here, because vmin already tracks the short side;
+   only its min-width does, so a 260px floor cannot exceed a narrow viewport. */
+@media (orientation:landscape) and (max-height:340px){
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-app-icon{
+  width:44px;height:44px;border-radius:12px}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-subtitle{display:none}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-headline{font-size:17px}
+ .w2a-backdrop:is([data-kind="video"],[data-kind="playable"])[data-phase="endcard"] .w2a-cta{
+  margin-top:4px;min-width:200px;min-width:min(260px,62vw)}}
 
 /* The HTML hidden ATTRIBUTE is only display:none in the UA stylesheet, and ANY
    author display rule outranks it. Three elements here carried an author display
