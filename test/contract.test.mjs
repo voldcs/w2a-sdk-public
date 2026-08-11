@@ -142,12 +142,12 @@ test('0.1.6 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.equal(release.licenseSha256, RELEASE_SNAPSHOT.licenseSha256)
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
-    status: "unpublished_candidate",
-    checkedAt: "2026-08-11T09:09:45Z",
+    status: "published",
+    checkedAt: "2026-08-11T09:10:59Z",
     githubVisibility: "public",
     tag: "0.1.6",
-    tagPresent: false,
-    jsdelivrHttpStatus: 404,
+    tagPresent: true,
+    jsdelivrHttpStatus: 200,
     npmRegistryHttpStatus: 404,
   })
   for (const [relativePath, expected] of Object.entries(RELEASE_SNAPSHOT.artifacts)) {
@@ -564,10 +564,10 @@ test('AppsFlyer guidance separates generic ingress from unavailable account rout
   assert.doesNotMatch(integration, /## Install postbacks \(AppsFlyer Push API\)/)
 })
 
-test('README labels 0.1.6 as a candidate that supersedes 0.1.5', async () => {
+test('README records the verified 0.1.6 publication and the npm gap', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
 
-  assert.ok(readme.includes('Release status: candidate'))
+  assert.ok(readme.includes('Release status: published on the CDN'))
   assert.ok(readme.includes('supersedes 0.1.5'))
   assert.ok(readme.includes('npm is'))
   assert.ok(readme.includes('still unpublished'))

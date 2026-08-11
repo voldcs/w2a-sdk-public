@@ -9,11 +9,11 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: candidate.** Version 0.1.6 supersedes 0.1.5: the Install
-button is now sized in proportion to the screen, between a floor of its old size
-and a ceiling of 1.5x that. Do not integrate the snippets below until the exact
-CDN URL returns JavaScript whose SHA-256 and SRI match `release.json`; npm is
-still unpublished.
+**Release status: published on the CDN.** Version 0.1.6 supersedes 0.1.5: the
+Install button is sized in proportion to the screen, between a floor of its old
+size and a ceiling of 1.5x that. At the 2026-08-11T09:10:59Z check the 0.1.6 tag
+was present and the exact CDN URL below returned JavaScript whose SHA-256 and
+SRI match `release.json`. npm is still unpublished.
 
 ## Install / include
 
