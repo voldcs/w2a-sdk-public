@@ -10,6 +10,12 @@
 
 const STATES = ['loading', 'opened', 'closed', 'rewarded', 'failed', 'no_fill', 'unsupported']
 
+// Hard ceiling on how long a clicked-out show may hold the `active` slot while
+// it waits for the player to come back from the store. It matches the server's
+// RESERVATION_TTL in backend/adserving.js, and it is a CEILING rather than a
+// setting: a publisher can ask for less, never for more.
+const MAX_CLICK_SUSPEND_MS = 60000
+
 function el(tag, style, props) {
   const e = document.createElement(tag)
   if (style) Object.assign(e.style, style)
@@ -189,8 +195,25 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .w2a-backdrop button[data-w2a="close"]{z-index:60;
  top:calc(var(--w2a-t) + 12px);right:calc(var(--w2a-r) + 12px);left:auto;font-size:24px}
+/* Locked: a rewarded video's close slot carries the REASON it is not an exit
+   yet, instead of a countdown to one. Same corner and the same safe-area
+   anchors as the armed disc, so nothing jumps when it turns back into a × at
+   the end card. Both orientations get this for free - the anchors are the
+   orientation-aware part, and they are unchanged. */
+.w2a-backdrop button[data-w2a="close"][data-state="locked"]{
+ width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
+ font-weight:600;white-space:nowrap;color:#ddd}
+/* A LABELLED PILL, not a disc with a speaker glyph. The glyph version was read
+   as a mute switch by the first partner who saw it - reasonably, because a
+   crossed-out speaker is what a mute control looks like everywhere else. It is
+   the opposite: the only way back to sound after the browser refused unmuted
+   autoplay. Overriding width and border-radius from the shared disc rule above
+   is deliberate; the label has to fit, and it is the label that removes the
+   ambiguity. */
 .w2a-backdrop button[data-w2a="sound"]{z-index:50;
- top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;font-size:21px}
+ top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;
+ width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
+ white-space:nowrap}
 .w2a-backdrop button[data-w2a="reward"]{pointer-events:auto;z-index:30;flex:0 0 auto;
  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35);color:#fff;
  padding:10px 18px;border-radius:999px;font-size:14px;min-height:44px;cursor:pointer;
@@ -462,7 +485,7 @@ function injectLayoutCss(doc) {
 const PUBLIC_STRING_FIELDS = Object.freeze([
   'state', 'requestId', 'format', 'placement', 'reason', 'detail', 'campaignId',
   'tier', 'impressionState', 'readinessProof', 'audio', 'playableSizing',
-  'fullscreen', 'presentation',
+  'fullscreen', 'presentation', 'clickPhase',
   // A reward is money the PUBLISHER pays its own player, so the evidence behind
   // it has to travel with the event. `dwell_only` next to `full` is the whole
   // point: a mediation partner can tell a watched video from a waited-out one.
@@ -475,7 +498,7 @@ const PUBLIC_NUMBER_FIELDS = Object.freeze([
 ])
 const PUBLIC_BOOLEAN_FIELDS = Object.freeze([
   'preloaded', 'matched', 'impressionConfirmed', 'clicked', 'visibilityEnforced',
-  'synthetic', 'framed', 'ctaGatedByImpression', 'completed', 'paused',
+  'synthetic', 'framed', 'ctaGatedByImpression', 'completed', 'paused', 'suspended',
   'rewardEarned', 'rewardEndedSeen', 'playableCompleteSeen', 'rewardVisibilityEnforced',
 ])
 
@@ -677,7 +700,14 @@ class W2ASDK {
   constructor() {
     this.cfg = null
     this.sessionId = cryptoId()
-    this.listeners = { ad_state: new Set(), w2a_pause: new Set(), w2a_resume: new Set(), w2a_impression: new Set() }
+    // `w2a_click` is NOT a terminal and not a pause/resume. It reports that the
+    // player left for the store and that the ad is still standing behind them,
+    // which is a state this SDK had no way to express before: a click used to BE
+    // the end of the show.
+    this.listeners = {
+      ad_state: new Set(), w2a_pause: new Set(), w2a_resume: new Set(),
+      w2a_impression: new Set(), w2a_click: new Set(),
+    }
     this.active = null
     this.overlay = null
     this._timers = [] // billable/rewarded таймеры активного показа
@@ -691,6 +721,13 @@ class W2ASDK {
         videoRewardMs: 30000, videoStartTimeoutMs: 10000, videoStallTimeoutMs: 10000,
         maxVideoMs: 10000, maxPlayableMs: 20000,
         requireVisible: true, preloadTtlMs: 30000,
+        // How long a show waits for a player who left for the store. Clamped to
+        // MAX_CLICK_SUSPEND_MS, and cut shorter still by the server's own
+        // reservation lease while the impression is unbilled - see the ceiling
+        // arithmetic in the CTA path. A show cannot wait forever: it owns the
+        // `active` slot, and a game whose next ad is refused as `busy` because a
+        // player wandered off yesterday is worse than a lost impression.
+        clickReturnTimeoutMs: MAX_CLICK_SUSPEND_MS,
         // 'auto' asks for sound and falls back to muted if the browser refuses.
         // 'muted' is for publishers whose own game audio must keep playing.
         audio: 'auto' },
@@ -760,6 +797,27 @@ class W2ASDK {
     const safeReason = typeof reason === 'string' && reason ? reason.slice(0, 64) : 'host_cancelled'
     this._finish(ctx, { state: 'failed', reason: safeReason })
     return true
+  }
+
+  /**
+   * Tell a suspended show that the player is back.
+   *
+   * The browser signals - `visibilitychange`, `pageshow`, `focus` - cover an
+   * ordinary web page, and the SDK listens to all of them. They do NOT cover a
+   * native Android WebView: `WebView.onPause()` does not pause JavaScript and
+   * the document is frequently never marked hidden at all, so a host that
+   * retained its WebView while an external store Activity covered it has to say
+   * so itself, from `onResume`.
+   *
+   * Correlated by requestId for the same reason `cancelActive` is: a late
+   * Activity callback must not be able to resume an ad that is not the one it
+   * was talking about.
+   */
+  resumeActive(requestId) {
+    const ctx = this.active
+    if (!ctx || ctx.completed || !requestId || ctx.requestId !== requestId) return false
+    const teardown = showTeardown.get(ctx)
+    return !!(teardown && teardown.resumeFromClick && teardown.resumeFromClick())
   }
 
   async _show(format, placement) {
@@ -1048,6 +1106,19 @@ class W2ASDK {
         if (typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', teardown.visHandler)
         teardown.visHandler = null
       }
+      // The page-lifecycle listeners of the click suspension. They live on
+      // `window` and `document`, not on the overlay, so detaching the ad does
+      // not take them with it: a show that left its `pageshow` handler behind
+      // would hold this entire context alive and could try to resume an ad that
+      // is already gone.
+      if (teardown.lifecycle) {
+        for (const [target, type, handler] of teardown.lifecycle) {
+          try { target.removeEventListener(type, handler, true) } catch { /* already detached */ }
+        }
+        teardown.lifecycle.length = 0
+      }
+      teardown.suspendForClick = null
+      teardown.resumeFromClick = null
       teardown.rewardSnapshot = null
       if (teardown.abortCreative) { teardown.abortCreative(); teardown.abortCreative = null }
       // Same reason as `_finish`: a detached <video> keeps its media resource,
@@ -1221,6 +1292,12 @@ class W2ASDK {
       // still keeps the currency, and a label that says otherwise is a lie the
       // publisher's support inbox pays for.
       rewardBtn.textContent = 'Reward earned - close'
+      // Revealed here rather than left to its constructor state: on a rewarded
+      // VIDEO the button is hidden for the whole roll, because the locked close
+      // slot is already saying "watch N seconds" and one screen does not need
+      // that sentence twice. Earning the reward is the point at which it has
+      // something else to say, so that is where it comes back.
+      rewardBtn.style.display = 'block'
       rewardBtn.style.borderColor = '#4ade80'
       rewardBtn.style.color = '#4ade80'
       rewardBtn.onclick = () => this._finish(ctx, { state: 'closed' })
@@ -1234,6 +1311,13 @@ class W2ASDK {
       rewardEarned = true
       Object.assign(ctx, report, { rewardEarned: true })
       paintEarned()
+      // EARNING IT IS ALSO AN EXIT. The close control on a rewarded video is
+      // gated on the end card, and the end card is the end of the FILM - which
+      // on a 60-second master with a 30-second gate is half a minute after the
+      // player has already earned everything the ad can give them. Holding them
+      // there is not a reward gate, it is a hostage situation. The gate exists
+      // so nobody skips out BEFORE earning; once earned, it has done its job.
+      if (closeGatedOnEndcard) unlockClose()
       this._state({ ...ctx, state: 'rewarded' })   // emitted ONLY here
     }
     // Set on every terminal path, earned or not, so "no reward" is reportable
@@ -1277,9 +1361,15 @@ class W2ASDK {
     // control, because the player presses it and concludes the ad is broken.
     // Geometry from the stylesheet, same reason as the close control. Only the
     // hidden/shown state is inline, because that is what changes at runtime.
-    const soundBtn = el('button', { display: 'none' }, { textContent: '🔇' })
+    //
+    // THIS ONLY EVER TURNS SOUND ON. There is no mute control in this SDK and
+    // there must not be one: ad audio is mandatory. It used to render as '🔇',
+    // and the first partner to see it filed it as a mute button that should be
+    // removed - which would have left every policy-muted ad silent forever, the
+    // exact opposite of the requirement. A word says what a glyph could not.
+    const soundBtn = el('button', { display: 'none' }, { textContent: 'Tap for sound' })
     soundBtn.setAttribute('data-w2a', 'sound')
-    soundBtn.setAttribute('aria-label', 'Unmute')
+    soundBtn.setAttribute('aria-label', 'Turn sound on')
 
     // The request id, format and placement are OUR debugging aids. They were
     // rendered into every ad, which means a partner evaluating the product read
@@ -1387,6 +1477,11 @@ class W2ASDK {
     // The CTA is available from the first rendered frame. clickState still
     // enforces genuine-input and one-shot semantics without a time gate.
     let clickState = 'BLOCKED'      // BLOCKED -> READY -> CLICKED (one-shot)
+    // The show is standing behind a store page the player walked off to. It is
+    // not hidden in the browser sense - in a webview the document is often never
+    // marked hidden at all - so it gets its own flag, and every clock in this
+    // render reads it through `isHidden()` below.
+    let clickSuspended = false
     // Impression reporting lives on ctx, so EVERY terminal event carries it and
     // not just the CTA click: a host that closes with the X still has to
     // reconcile its impression count with ours, and that path used to report
@@ -1413,8 +1508,15 @@ class W2ASDK {
     // A host may opt dwell formats out when its webview misreports visibility.
     // Video cannot opt out: hidden advancing media is the reward and billing
     // currency, so its foreground clocks must stop with the tab.
-    const isHidden = () => (requireVisible || isVideoCreative) &&
-      typeof document !== 'undefined' && document.hidden === true
+    //
+    // A CLICK-SUSPENDED show is hidden unconditionally, and the opt-out does not
+    // reach it. `requireVisible: false` exists for a webview that lies about
+    // `document.hidden`; it is not a licence to run the dwell clock while the
+    // player is demonstrably in the Play Store. Putting the suspension first
+    // here is what stops every deadline, the reward floor and the impression
+    // clock in one place instead of at each of their call sites.
+    const isHidden = () => clickSuspended || ((requireVisible || isVideoCreative) &&
+      typeof document !== 'undefined' && document.hidden === true)
     // Reported on EVERY exit, not only on a click-out. It used to be attached in
     // the CTA handler alone, so an ad closed with the × reported nothing and a
     // partner could not tell an unverified-dwell show from a verified one unless
@@ -1483,7 +1585,14 @@ class W2ASDK {
     // the ad is still counted as on screen, or the last sample before a hide is
     // thrown away and an honest player loses it.
     let onVisibilityChange = null
-    const teardown = { visHandler: null, playableMsg: null, rewardSnapshot: null, timers: [] }
+    const teardown = {
+      visHandler: null, playableMsg: null, rewardSnapshot: null, timers: [],
+      // Every listener this show puts on `window` or `document` beyond the
+      // visibility one, as [target, type, handler]. They come off together in
+      // `_finish`; a show that leaves a `pageshow` handler behind holds its whole
+      // context alive and can resume an ad that no longer exists.
+      lifecycle: [],
+    }
     showTeardown.set(ctx, teardown)
     // Hand the budget back if this show ends without ever billing. Only an
     // UNCLAIMED preload released its reservation; the moment a show started -
@@ -1529,8 +1638,178 @@ class W2ASDK {
       // it is waiting on just stopped or started.
       for (const arm of visibleDeadlines) { try { arm() } catch { /* one deadline must not take the rest */ } }
     }
-    teardown.visHandler = visHandler
-    if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', visHandler)
+    // ---- click-out suspension -------------------------------------------
+    //
+    // A tap on Install used to END the show: `_finish` ran synchronously inside
+    // the click handler, so the player came back from the store to no ad at all.
+    // That made Install a skip button - the partner's words: "иначе ее так
+    // сбрасывать будут, чтобы получить ревард, или пропустить интерстишл" - and
+    // it also put the whole teardown, `document.exitFullscreen()` included, in
+    // front of the navigation the player was waiting for.
+    //
+    // Now the show SUSPENDS. It keeps the overlay, the media element, the
+    // `active` slot and its evidence, stops every clock through `isHidden()`,
+    // and waits for the player. What it must never do is wait forever: it owns
+    // the `active` slot, and a game whose next ad is refused as `busy` because
+    // somebody wandered off is worse than a lost impression.
+    let clickDeadlineAt = null
+    let clickTimer = null
+    const clearClickTimer = () => {
+      if (clickTimer === null) return
+      dropTimer(clickTimer)
+      clickTimer = null
+    }
+    // Guards the re-arm below against a clock that does not move. Same hazard,
+    // and the same remedy, as the visible-time deadlines above: a timeout that
+    // fires without its clock having advanced would re-arm on the identical
+    // value and spin at whatever rate the event loop allows.
+    let clickLastLeft = Infinity
+    const armClickTimer = () => {
+      clearClickTimer()
+      // Re-armed rather than trusted once. A frozen or bfcached page runs no
+      // timers at all, so a single `setTimeout` can come back late by any amount
+      // - the deadline is the authority and the timer is only what wakes us to
+      // read it.
+      const left = Math.max(0, clickDeadlineAt - now())
+      const handle = setTimeout(() => {
+        if (clickTimer !== handle) return
+        clickTimer = null
+        if (!clickSuspended || ctx.completed) return
+        const stillOwed = clickDeadlineAt - now()
+        // Real time passed and the clock is not reporting it: honour the wait
+        // rather than spin on it.
+        if (stillOwed > 0 && stillOwed < clickLastLeft) { clickLastLeft = stillOwed; armClickTimer(); return }
+        this._finish(ctx, { state: 'failed', reason: 'click_return_timeout', clicked: true })
+      }, left)
+      clickLastLeft = left
+      clickTimer = pushTimer(handle)
+    }
+    /**
+     * The player is back. `hostConfirmed` is a native host telling us so from
+     * its own Activity lifecycle; everything else has to prove it through the
+     * document, because `focus` and `pageshow` both fire in cases where the page
+     * is still not on screen.
+     */
+    const resumeFromClick = (hostConfirmed) => {
+      if (!clickSuspended || ctx.completed) return false
+      if (!hostConfirmed && typeof document !== 'undefined' && document.hidden === true) return false
+      if (now() >= clickDeadlineAt) {
+        this._finish(ctx, { state: 'failed', reason: 'click_return_timeout', clicked: true })
+        return false
+      }
+      clearClickTimer()
+      clickSuspended = false
+      if (teardown.resumeVideoDeadline) teardown.resumeVideoDeadline()
+      visHandler()   // restarts the visible clock and re-arms every deadline
+      // NOT `w2a_resume`. The ad is back on screen and the GAME must stay
+      // paused; resume means "our ad is gone", and firing it here would un-pause
+      // the game underneath an ad that is still running.
+      this._emit('w2a_click', { ...ctx, state: 'opened', clicked: true, suspended: false, clickPhase: 'returned' })
+      return true
+    }
+    const suspendForClick = () => {
+      if (clickSuspended || ctx.completed) return false
+      // ORDER IS LOAD-BEARING. The media epoch closes while the ad still counts
+      // as on screen; raising the flag first would stamp that last sample as
+      // not-visible and throw away the stretch the player actually watched
+      // between the previous `timeupdate` and the tap. This runs BEFORE the
+      // flag for the same reason it may legitimately grant a reward here: the
+      // seconds it credits were watched, and suspension is not allowed to take
+      // back something that was earned before it started.
+      if (teardown.creditVideoTail) teardown.creditVideoTail()
+      // RE-CHECK, because the line above can finish the show. Crediting the tail
+      // may cross the reward gate, and `grantReward` emits `rewarded` to
+      // publisher listeners SYNCHRONOUSLY - a host that closes its ad from
+      // inside that callback runs `_finish` to completion before control gets
+      // back here. `_finish` guards against exactly this re-entry for its own
+      // callers (see its comment); this path needed the same guard and did not
+      // have it, so a finished show was re-flagged as suspended and the host was
+      // told the ad was back on screen moments after being told it was gone.
+      if (ctx.completed) return false
+      clickSuspended = true
+      ctx.clicked = true
+      const wanted = Number(this.cfg.clickReturnTimeoutMs)
+      const ceiling = Number.isFinite(wanted) && wanted >= 0 ? wanted : MAX_CLICK_SUSPEND_MS
+      // The server's reservation lease is deliberately NOT used as a second
+      // bound. `resp.reservationExpiresAt` is stamped from the SERVER clock and
+      // this is the client's; subtracting one from the other silently encodes
+      // whatever skew exists between them, which is exactly the kind of bug that
+      // only shows up on somebody else's device. The ceiling already equals the
+      // server's RESERVATION_TTL, and the server sweeps its own expired
+      // reservations - it does not need us to predict when.
+      clickDeadlineAt = now() + Math.min(MAX_CLICK_SUSPEND_MS, ceiling)
+      if (teardown.pauseVideoDeadline) teardown.pauseVideoDeadline()
+      // Close the media epoch BEFORE the clocks stop, so the last stretch the
+      // player actually watched is credited rather than dropped. This settles
+      // evidence for REPORTING only - it cannot grant, because every grant path
+      // is guarded on `clickSuspended`, which is already true here.
+      visHandler()
+      armClickTimer()
+      return true
+    }
+    teardown.suspendForClick = suspendForClick
+    // A native host's word is authoritative: an Android WebView commonly never
+    // marks its document hidden, so the document check would refuse a real
+    // return.
+    teardown.resumeFromClick = () => resumeFromClick(true)
+
+    const visibilityHandler = () => {
+      if (clickSuspended && typeof document !== 'undefined' && document.hidden !== true) {
+        resumeFromClick(false)
+        return
+      }
+      visHandler()
+    }
+    teardown.visHandler = visibilityHandler
+    if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', visibilityHandler)
+
+    // The rest of the page-lifecycle surface. `visibilitychange` alone misses a
+    // back-forward-cache restore and Chromium's frozen-page `resume`.
+    //
+    // `focus` IS NOT HERE, and that is deliberate. It was, and it was wrong three
+    // times over. A window gains focus in plenty of situations that are not a
+    // return from the store, and the `document.hidden !== true` guard that was
+    // supposed to catch those is vacuous in an Android WebView - the one host
+    // this whole feature exists for - because such a webview never marks its
+    // document hidden at all. So a stray focus ended the suspension, restarted
+    // every clock while the player was still in the Play Store, and cleared the
+    // ceiling permanently: Install became a way to bank reward time, which is the
+    // exact exploit this change was written to close. Worse, routing focus
+    // through `visHandler` broke the video evidence epoch on EVERY occurrence,
+    // so an ordinary alt-tab during an honest full watch could leave the player
+    // short of the ratio gate and earning nothing. A webview that needs to
+    // announce a return has `resumeActive(requestId)`, which is explicit and
+    // correlated instead of ambient and guessed.
+    const listenLifecycle = (target, type, handler) => {
+      if (!target || typeof target.addEventListener !== 'function') return
+      target.addEventListener(type, handler, true)
+      teardown.lifecycle.push([target, type, handler])
+    }
+    // Only ever acts on a SUSPENDED show. The old version fell through to
+    // `visHandler()` for every event it saw, which made each of these listeners a
+    // way to disturb the evidence of an ad that was playing perfectly normally.
+    const returnHandler = () => { if (clickSuspended) resumeFromClick(false) }
+    const pageHideHandler = (event) => {
+      visHandler()
+      // `persisted: false` means this document is going away for good: it is not
+      // entering the back-forward cache and cannot come back, so this in-memory
+      // show is over whatever else happens.
+      //
+      // This has to be a TERMINAL, not just a release. The click timeout is the
+      // only other thing that ends a suspended show, and a terminated or
+      // discarded document never runs another timer - so without this the show
+      // ended with no terminal and no `w2a_resume` at all. In the ordinary case
+      // the host document dies with us and nobody is left to notice; a host that
+      // OUTLIVES this document - a native wrapper, a persistent parent frame -
+      // would sit paused for ever waiting for a resume that had nowhere to come
+      // from. `_finish` also performs the unbilled release on its own guarded
+      // path, so nothing is leaked by routing through it.
+      if (!clickSuspended || event.persisted === true || ctx.completed) return
+      this._finish(ctx, { state: 'failed', reason: 'click_left_page', clicked: true })
+    }
+    listenLifecycle(typeof window !== 'undefined' ? window : null, 'pageshow', returnHandler)
+    listenLifecycle(typeof document !== 'undefined' ? document : null, 'resume', returnHandler)
+    listenLifecycle(typeof window !== 'undefined' ? window : null, 'pagehide', pageHideHandler)
 
     const armCTA = () => {
       if (clickState !== 'BLOCKED') return
@@ -1562,11 +1841,42 @@ class W2ASDK {
     const unlockClose = () => {
       closeArmed = true
       close.textContent = '×'
+      // Back to the disc. While the control was locked it rendered as a labelled
+      // pill, and leaving that attribute on would give the × a pill's width.
+      close.removeAttribute('data-state')
       close.style.pointerEvents = 'auto'
       close.style.cursor = 'pointer'
       close.style.color = '#ddd'
     }
-    if (closeAfterSecs <= 0) unlockClose()
+    // A REWARDED VIDEO MAY NOT BE DISMISSIBLE MID-ROLL.
+    //
+    // `closeAfterSecs` is format-agnostic, so on a 30-second rewarded master the
+    // × armed at five seconds and the player could wave the ad away a sixth of
+    // the way in. The partner photographed exactly that. For rewarded video the
+    // close control is now gated on the creative PHASE - the end card - instead
+    // of on a wall of visible seconds, and until then the slot carries the
+    // reason it is locked rather than a countdown to an exit that should not be
+    // arriving.
+    //
+    // VIDEO ONLY, deliberately. An interstitial keeps its five-second escape: an
+    // interstitial video nobody can dismiss until it ends is a trap for the
+    // player and a policy problem for the publisher. And a rewarded IMAGE is its
+    // own end card from the first frame, so gating it the same way would arm the
+    // × instantly - strictly worse than the timer it replaced.
+    const closeGatedOnEndcard = ctx.format === 'rewarded' && isVideoCreative
+    if (closeGatedOnEndcard) {
+      const wantedRewardMs = Number(this.cfg.videoRewardMs)
+      const rewardMs = Number.isFinite(wantedRewardMs) && wantedRewardMs >= 0 ? wantedRewardMs : 30000
+      close.textContent = `Watch ${Math.ceil(rewardMs / 1000)}s`
+      close.setAttribute('data-state', 'locked')
+      // Trap door, not a countdown. Every known way a video dies already calls
+      // `_finish` - `vast_deadline`, `vast_stalled`, `vast_never_advanced` - but
+      // a creative that buffers forever without tripping any of them would leave
+      // the player sealed inside an ad with no exit at all. The ceiling is far
+      // enough past the reward gate that a healthy show reaches its end card
+      // first and this never fires.
+      afterVisibleMs(rewardMs + 15000, unlockClose)
+    } else if (closeAfterSecs <= 0) unlockClose()
     else {
       // Deferred until the ad is ACTIVATED, not merely rendered. The countdown
       // used to start the moment a preload was built, and its only visibility
@@ -1742,8 +2052,15 @@ class W2ASDK {
       // duration cannot move the backstop with its advancing currentTime.
       let absoluteStartedAt = null
       let absoluteTimer = null
+      // Wall time the show has spent waiting behind a store page. It is SUBTRACTED
+      // from the absolute deadline: this deadline is a watchdog against a film
+      // that never finishes, not a limit on how long a player may spend deciding
+      // whether to install. Without this a player who tapped Install at second 25
+      // of a 30-second creative came back to `vast_deadline` - the ad killed
+      // itself for the crime of being clicked.
+      let absoluteClickPausedAt = null
       const armAbsoluteDeadline = () => {
-        if (absoluteStartedAt === null || ctx.completed) return
+        if (absoluteStartedAt === null || absoluteClickPausedAt !== null || ctx.completed) return
         if (absoluteTimer !== null) { dropTimer(absoluteTimer); absoluteTimer = null }
         const left = absoluteVideoMs() - (Date.now() - absoluteStartedAt)
         if (left <= 0) { this._finish(ctx, { state: 'failed', reason: 'vast_deadline' }); return }
@@ -1758,6 +2075,19 @@ class W2ASDK {
         absoluteStartedAt = Date.now()
         armAbsoluteDeadline()
       })
+      teardown.pauseVideoDeadline = () => {
+        if (absoluteStartedAt === null || absoluteClickPausedAt !== null) return
+        absoluteClickPausedAt = Date.now()
+        if (absoluteTimer !== null) { dropTimer(absoluteTimer); absoluteTimer = null }
+      }
+      teardown.resumeVideoDeadline = () => {
+        if (absoluteClickPausedAt === null) return
+        // Push the start forward by exactly the time spent away, so the deadline
+        // measures film time rather than errand time.
+        if (absoluteStartedAt !== null) absoluteStartedAt += Date.now() - absoluteClickPausedAt
+        absoluteClickPausedAt = null
+        armAbsoluteDeadline()
+      }
 
       // --- reward and billing evidence ------------------------------------
       let hasAdvanced = false
@@ -1767,7 +2097,17 @@ class W2ASDK {
       let playbackEnded = false
       // Rewarded video always excludes hidden-tab playback, even when a host has
       // disabled the dwell-format visibility guard for a misreporting webview.
-      const videoIsHidden = () => typeof document !== 'undefined' && document.hidden === true
+      //
+      // A click-suspended show counts as hidden here too, and this ONE line is
+      // what keeps the suspension honest for video. Every reward and billing
+      // decision downstream reads its evidence through this predicate, so a film
+      // that keeps rolling behind the Play Store - which an Android WebView will
+      // happily do, since `WebView.onPause()` does not pause JavaScript or media
+      // - accrues neither coverage nor attention while the player is not there.
+      // Guarding the grant conditions instead would have meant finding all of
+      // them, and missing one is a reward paid for an ad nobody watched.
+      const videoIsHidden = () => clickSuspended ||
+        (typeof document !== 'undefined' && document.hidden === true)
       const observeVideoProgress = () => {
         const progress = evidence.verdict(videoDurationMs())
         if (progress.attentionMs > lastAttentionMs) {
@@ -1822,6 +2162,14 @@ class W2ASDK {
         if (creditTail) sampleVideo(true)
         evidence.break()
       }
+      // Close the epoch and credit the tail while the ad is STILL counted as on
+      // screen. The click suspension calls this before it raises its flag,
+      // because `sampleVideo` stamps each sample with `visible: !videoIsHidden()`
+      // and the flag makes that false. On a 60-second master a player whose last
+      // `timeupdate` landed at 29.4s, who then watched through 30.0s and tapped
+      // Install before the next one, would otherwise have that 0.6s discarded -
+      // and 0.6s is exactly the width of the reward gate they just crossed.
+      teardown.creditVideoTail = () => { try { endEpoch(true) } catch { /* nothing open to close */ } }
       for (const evt of ['timeupdate', 'playing', 'ratechange']) {
         vid.addEventListener(evt, () => sampleVideo())
       }
@@ -2068,6 +2416,11 @@ class W2ASDK {
         fireCompletionTrackers()
         settleVideoReward()
         backdrop.setAttribute('data-phase', 'endcard')
+        // The end card IS the exit for a rewarded video: this is the moment the
+        // locked slot becomes a real ×. Calling it here rather than from a CSS
+        // phase watcher keeps the one place that decides "the film is over" in
+        // charge of both the layout and the way out.
+        if (closeGatedOnEndcard) unlockClose()
       })
       // Metadata changes presentation only. Billing and watchdog cancellation
       // require credible advancing media samples below.
@@ -2244,13 +2597,19 @@ class W2ASDK {
       if (!e.isTrusted && !this.cfg.allowSyntheticClicks) { e.preventDefault(); return }
       clickState = 'CLICKED'                 // one-shot: повторный тап уже не пройдёт
       cta.style.pointerEvents = 'none'
-      this._finish(ctx, closedEvent({
-        // impression fields come from ctx (single source of truth for all
-        // terminal paths); repeating them here is how they drifted apart before
-        clicked: true,
-        // `visibilityEnforced` now rides on ctx for every exit, not just this one
-        ...(e.isTrusted ? {} : { synthetic: true }), // синтетика помечается явно
-      }))
+      if (!e.isTrusted) ctx.synthetic = true  // синтетика помечается явно
+      // NOTHING HEAVY BELOW THIS LINE. Whatever runs here runs BEFORE the browser
+      // performs the navigation this anchor is about to do, on the same thread.
+      // The old code called `_finish` from here: reward snapshot, timer sweep,
+      // listener removal, overlay detach, `document.exitFullscreen()` and a
+      // synchronous publisher callback, all in front of the player's trip to the
+      // store. Suspension is a flag, one timer and one event.
+      // Gated on the RETURN VALUE. Announcing a suspension that did not happen
+      // is worse than announcing nothing: the contract for `clickPhase:
+      // 'suspended'` is "the ad is still on screen, stay paused", so a host that
+      // believes it re-pauses a game with no ad in front of it.
+      if (!suspendForClick()) return
+      this._emit('w2a_click', { ...ctx, state: 'opened', clicked: true, suspended: true, clickPhase: 'suspended' })
     })
 
     // rewarded lifecycle (интервал очищается в _finish, иначе stale-эмит rewarded)
@@ -2307,6 +2666,11 @@ class W2ASDK {
           const configured = Number(this.cfg.videoRewardMs)
           const seconds = Math.ceil((Number.isFinite(configured) && configured >= 0 ? configured : 30000) / 1000)
           rewardBtn.textContent = `Watch ${seconds} seconds to earn reward`
+          // The locked close slot now carries this same sentence in the corner,
+          // and printing it twice on one creative reads as a rendering fault
+          // rather than emphasis. The button comes back the moment it has
+          // something of its own to say - `paintEarned` reveals it.
+          if (closeGatedOnEndcard) rewardBtn.style.display = 'none'
           return
         }
         rewardBtn.textContent = `Reward in ${Math.ceil(floorMs / 1000)}s…`
@@ -2577,6 +2941,13 @@ class W2ASDK {
       delete ev.reason
     }
     ctx.completed = true
+    // `suspended` is NOT kept on ctx, and this is why. ctx is spread into every
+    // publisher event, so a flag stored there rides out on whatever is emitted
+    // next - and the reward grant that the tail credit can trigger is emitted
+    // from inside the suspension itself, which put `suspended: true` on an
+    // `ad_state` 'rewarded'. The published type says the flag only ever appears
+    // on `w2a_click`, so that made the declaration a lie. It is passed
+    // explicitly to the two `w2a_click` emits instead, and lives nowhere else.
     // Hand back budget this show reserved and never spent. Guarded on `!qualified`
     // inside the closure: releasing after `qualify()` has posted the impression
     // would void an in-flight commit and lose billing on a clicked ad.
@@ -2603,6 +2974,19 @@ class W2ASDK {
         if (typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', teardown.visHandler)
         teardown.visHandler = null
       }
+      // The page-lifecycle listeners of the click suspension. They live on
+      // `window` and `document`, not on the overlay, so detaching the ad does
+      // not take them with it: a show that left its `pageshow` handler behind
+      // would hold this entire context alive and could try to resume an ad that
+      // is already gone.
+      if (teardown.lifecycle) {
+        for (const [target, type, handler] of teardown.lifecycle) {
+          try { target.removeEventListener(type, handler, true) } catch { /* already detached */ }
+        }
+        teardown.lifecycle.length = 0
+      }
+      teardown.suspendForClick = null
+      teardown.resumeFromClick = null
       if (teardown.abortCreative) { teardown.abortCreative(); teardown.abortCreative = null }
     }
     this._exitFullscreen(ctx)

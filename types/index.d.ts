@@ -17,7 +17,20 @@ export type W2ACreativeFit = 'auto' | 'contain' | 'cover'
  * second terminal. Best-effort: a click-out navigates the page, so the event
  * may never fire - server-side reporting remains authoritative.
  */
-export type W2AEvent = 'ad_state' | 'w2a_pause' | 'w2a_resume' | 'w2a_impression'
+/**
+ * `w2a_click` is NOT a terminal.
+ *
+ * A tap on Install used to end the show; the player came back from the store to
+ * no ad at all, which made Install a skip button. The show now SUSPENDS and
+ * waits, so the click needs an event of its own: `clickPhase: 'suspended'` when
+ * the player leaves, `'returned'` when they come back. The eventual terminal
+ * still carries `clicked: true`.
+ *
+ * A host must NOT resume its game on this event - the ad is still on screen.
+ * `w2a_resume` remains the one signal that the ad is gone.
+ */
+export type W2AEvent =
+  'ad_state' | 'w2a_pause' | 'w2a_resume' | 'w2a_impression' | 'w2a_click'
 
 export interface W2AConfig {
   /** W2A ad-server base URL; '' = same origin */
@@ -70,6 +83,11 @@ export interface W2AConfig {
   consentState?: string
   /** how long a preload()'d decision stays valid before it expires (ms) */
   preloadTtlMs?: number
+  /** How long a clicked-out show waits for the player to come back from the
+   *  store before it gives up and reports `click_return_timeout`. Clamped to
+   *  60000 ms: a suspended show holds the `active` slot, so it cannot wait
+   *  indefinitely without refusing the game's next ad as busy. */
+  clickReturnTimeoutMs?: number
 }
 
 /** How a reward was arrived at. `visible_dwell` is a policy, not proof. */
@@ -108,6 +126,14 @@ export interface AdStateEvent {
    *  `clicks <= impressions` cannot be assumed */
   ctaGatedByImpression?: boolean
   clicked?: boolean
+  /** Whether the show is waiting behind a store page the player clicked through
+   *  to. Present ONLY on `w2a_click` - `true` on the `suspended` phase, `false`
+   *  on `returned` - and absent from every `ad_state`, including the terminal.
+   *  It is not carried on the show context precisely so it cannot ride out on an
+   *  unrelated event. */
+  suspended?: boolean
+  /** which half of the click-out this `w2a_click` reports */
+  clickPhase?: 'suspended' | 'returned'
   /** the click was not a trusted user event */
   synthetic?: boolean
   /** whether this format enforced foreground visibility. VAST always does;
@@ -224,6 +250,14 @@ export interface W2ASDK {
   /** Tear down only the active show with this requestId. Returns false for a
    *  stale or unknown request so an old watchdog cannot cancel a newer ad. */
   cancelActive(requestId: string, reason?: string): boolean
+  /** Tell a click-suspended show that the player is back, for a native host
+   *  that retained its WebView while an external store Activity covered it.
+   *  Browser pages do not need this - the SDK listens to `visibilitychange`,
+   *  `pageshow`, `focus` and `resume` itself - but an Android WebView commonly
+   *  never marks its document hidden, so those signals never arrive. Correlated
+   *  by requestId so a late Activity callback cannot resume a newer ad.
+   *  Returns false if there is no suspended show with that id. */
+  resumeActive(requestId: string): boolean
   /** Report the coverage surface available in the current browser context. */
   capabilities(): W2ACapabilities
   on(event: W2AEvent, cb: (e: AdStateEvent) => void): () => void

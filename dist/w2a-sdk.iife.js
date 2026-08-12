@@ -1,4 +1,4 @@
-/* w2a-src-sha256:466182568c3a06e9505c8971b38a26c86124bc8565190c68764e3bf3c108ac6e */
+/* w2a-src-sha256:9fd2693c4d0647aa66c1fbd87a7a6a63f6111c47fbcf15bf3d36a671a5f8e36e */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -25,6 +25,7 @@ var W2ANS = (() => {
     createRewardEvidence: () => createRewardEvidence
   });
   var STATES = ["loading", "opened", "closed", "rewarded", "failed", "no_fill", "unsupported"];
+  var MAX_CLICK_SUSPEND_MS = 6e4;
   function el(tag, style, props) {
     const e = document.createElement(tag);
     if (style) Object.assign(e.style, style);
@@ -186,8 +187,25 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .w2a-backdrop button[data-w2a="close"]{z-index:60;
  top:calc(var(--w2a-t) + 12px);right:calc(var(--w2a-r) + 12px);left:auto;font-size:24px}
+/* Locked: a rewarded video's close slot carries the REASON it is not an exit
+   yet, instead of a countdown to one. Same corner and the same safe-area
+   anchors as the armed disc, so nothing jumps when it turns back into a \xD7 at
+   the end card. Both orientations get this for free - the anchors are the
+   orientation-aware part, and they are unchanged. */
+.w2a-backdrop button[data-w2a="close"][data-state="locked"]{
+ width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
+ font-weight:600;white-space:nowrap;color:#ddd}
+/* A LABELLED PILL, not a disc with a speaker glyph. The glyph version was read
+   as a mute switch by the first partner who saw it - reasonably, because a
+   crossed-out speaker is what a mute control looks like everywhere else. It is
+   the opposite: the only way back to sound after the browser refused unmuted
+   autoplay. Overriding width and border-radius from the shared disc rule above
+   is deliberate; the label has to fit, and it is the label that removes the
+   ambiguity. */
 .w2a-backdrop button[data-w2a="sound"]{z-index:50;
- top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;font-size:21px}
+ top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;
+ width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
+ white-space:nowrap}
 .w2a-backdrop button[data-w2a="reward"]{pointer-events:auto;z-index:30;flex:0 0 auto;
  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35);color:#fff;
  padding:10px 18px;border-radius:999px;font-size:14px;min-height:44px;cursor:pointer;
@@ -388,6 +406,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
     "playableSizing",
     "fullscreen",
     "presentation",
+    "clickPhase",
     // A reward is money the PUBLISHER pays its own player, so the evidence behind
     // it has to travel with the event. `dwell_only` next to `full` is the whole
     // point: a mediation partner can tell a watched video from a waited-out one.
@@ -415,6 +434,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
     "ctaGatedByImpression",
     "completed",
     "paused",
+    "suspended",
     "rewardEarned",
     "rewardEndedSeen",
     "playableCompleteSeen",
@@ -568,7 +588,13 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
     constructor() {
       this.cfg = null;
       this.sessionId = cryptoId();
-      this.listeners = { ad_state: /* @__PURE__ */ new Set(), w2a_pause: /* @__PURE__ */ new Set(), w2a_resume: /* @__PURE__ */ new Set(), w2a_impression: /* @__PURE__ */ new Set() };
+      this.listeners = {
+        ad_state: /* @__PURE__ */ new Set(),
+        w2a_pause: /* @__PURE__ */ new Set(),
+        w2a_resume: /* @__PURE__ */ new Set(),
+        w2a_impression: /* @__PURE__ */ new Set(),
+        w2a_click: /* @__PURE__ */ new Set()
+      };
       this.active = null;
       this.overlay = null;
       this._timers = [];
@@ -594,6 +620,13 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           maxPlayableMs: 2e4,
           requireVisible: true,
           preloadTtlMs: 3e4,
+          // How long a show waits for a player who left for the store. Clamped to
+          // MAX_CLICK_SUSPEND_MS, and cut shorter still by the server's own
+          // reservation lease while the impression is unbilled - see the ceiling
+          // arithmetic in the CTA path. A show cannot wait forever: it owns the
+          // `active` slot, and a game whose next ad is refused as `busy` because a
+          // player wandered off yesterday is worse than a lost impression.
+          clickReturnTimeoutMs: MAX_CLICK_SUSPEND_MS,
           // 'auto' asks for sound and falls back to muted if the browser refuses.
           // 'muted' is for publishers whose own game audio must keep playing.
           audio: "auto"
@@ -658,6 +691,26 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       const safeReason = typeof reason === "string" && reason ? reason.slice(0, 64) : "host_cancelled";
       this._finish(ctx, { state: "failed", reason: safeReason });
       return true;
+    }
+    /**
+     * Tell a suspended show that the player is back.
+     *
+     * The browser signals - `visibilitychange`, `pageshow`, `focus` - cover an
+     * ordinary web page, and the SDK listens to all of them. They do NOT cover a
+     * native Android WebView: `WebView.onPause()` does not pause JavaScript and
+     * the document is frequently never marked hidden at all, so a host that
+     * retained its WebView while an external store Activity covered it has to say
+     * so itself, from `onResume`.
+     *
+     * Correlated by requestId for the same reason `cancelActive` is: a late
+     * Activity callback must not be able to resume an ad that is not the one it
+     * was talking about.
+     */
+    resumeActive(requestId) {
+      const ctx = this.active;
+      if (!ctx || ctx.completed || !requestId || ctx.requestId !== requestId) return false;
+      const teardown = showTeardown.get(ctx);
+      return !!(teardown && teardown.resumeFromClick && teardown.resumeFromClick());
     }
     async _show(format, placement) {
       if (!this.cfg) throw new Error("W2A.init was not called");
@@ -916,6 +969,17 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           if (typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", teardown.visHandler);
           teardown.visHandler = null;
         }
+        if (teardown.lifecycle) {
+          for (const [target, type, handler] of teardown.lifecycle) {
+            try {
+              target.removeEventListener(type, handler, true);
+            } catch {
+            }
+          }
+          teardown.lifecycle.length = 0;
+        }
+        teardown.suspendForClick = null;
+        teardown.resumeFromClick = null;
         teardown.rewardSnapshot = null;
         if (teardown.abortCreative) {
           teardown.abortCreative();
@@ -1050,6 +1114,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       let rewardEarned = false;
       const paintEarned = () => {
         rewardBtn.textContent = "Reward earned - close";
+        rewardBtn.style.display = "block";
         rewardBtn.style.borderColor = "#4ade80";
         rewardBtn.style.color = "#4ade80";
         rewardBtn.onclick = () => this._finish(ctx, { state: "closed" });
@@ -1061,6 +1126,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         rewardEarned = true;
         Object.assign(ctx, report, { rewardEarned: true });
         paintEarned();
+        if (closeGatedOnEndcard) unlockClose();
         this._state({ ...ctx, state: "rewarded" });
       };
       const recordVideoEvidence = (v) => {
@@ -1082,9 +1148,9 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         color: "#bbb"
       }, { textContent: closeAfterSecs > 0 ? String(closeAfterSecs) : "\xD7" });
       close.setAttribute("data-w2a", "close");
-      const soundBtn = el("button", { display: "none" }, { textContent: "\u{1F507}" });
+      const soundBtn = el("button", { display: "none" }, { textContent: "Tap for sound" });
       soundBtn.setAttribute("data-w2a", "sound");
-      soundBtn.setAttribute("aria-label", "Unmute");
+      soundBtn.setAttribute("aria-label", "Turn sound on");
       const showMeta = this.cfg.debugOverlay === true;
       const meta = el(
         "div",
@@ -1146,11 +1212,12 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       }
       ctx.impStart = ctx.impStart || Date.now();
       let clickState = "BLOCKED";
+      let clickSuspended = false;
       let qualified = false;
       let visAccum = 0;
       const requireVisible = this.cfg.requireVisible !== false;
       const isVideoCreative = c.type === "vast" && !!c.vastUrl;
-      const isHidden = () => (requireVisible || isVideoCreative) && typeof document !== "undefined" && document.hidden === true;
+      const isHidden = () => clickSuspended || (requireVisible || isVideoCreative) && typeof document !== "undefined" && document.hidden === true;
       ctx.visibilityEnforced = requireVisible || isVideoCreative;
       if (ctx.format === "rewarded") {
         ctx.rewardVisibilityEnforced = isVideoCreative ? true : requireVisible;
@@ -1196,7 +1263,17 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         arm();
       });
       let onVisibilityChange = null;
-      const teardown = { visHandler: null, playableMsg: null, rewardSnapshot: null, timers: [] };
+      const teardown = {
+        visHandler: null,
+        playableMsg: null,
+        rewardSnapshot: null,
+        timers: [],
+        // Every listener this show puts on `window` or `document` beyond the
+        // visibility one, as [target, type, handler]. They come off together in
+        // `_finish`; a show that leaves a `pageshow` handler behind holds its whole
+        // context alive and can resume an ad that no longer exists.
+        lifecycle: []
+      };
       showTeardown.set(ctx, teardown);
       teardown.releaseUnbilled = () => {
         if (!qualified) this._release(ctx.requestId, resp);
@@ -1234,8 +1311,87 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           }
         }
       };
-      teardown.visHandler = visHandler;
-      if (typeof document.addEventListener === "function") document.addEventListener("visibilitychange", visHandler);
+      let clickDeadlineAt = null;
+      let clickTimer = null;
+      const clearClickTimer = () => {
+        if (clickTimer === null) return;
+        dropTimer(clickTimer);
+        clickTimer = null;
+      };
+      let clickLastLeft = Infinity;
+      const armClickTimer = () => {
+        clearClickTimer();
+        const left = Math.max(0, clickDeadlineAt - now());
+        const handle = setTimeout(() => {
+          if (clickTimer !== handle) return;
+          clickTimer = null;
+          if (!clickSuspended || ctx.completed) return;
+          const stillOwed = clickDeadlineAt - now();
+          if (stillOwed > 0 && stillOwed < clickLastLeft) {
+            clickLastLeft = stillOwed;
+            armClickTimer();
+            return;
+          }
+          this._finish(ctx, { state: "failed", reason: "click_return_timeout", clicked: true });
+        }, left);
+        clickLastLeft = left;
+        clickTimer = pushTimer(handle);
+      };
+      const resumeFromClick = (hostConfirmed) => {
+        if (!clickSuspended || ctx.completed) return false;
+        if (!hostConfirmed && typeof document !== "undefined" && document.hidden === true) return false;
+        if (now() >= clickDeadlineAt) {
+          this._finish(ctx, { state: "failed", reason: "click_return_timeout", clicked: true });
+          return false;
+        }
+        clearClickTimer();
+        clickSuspended = false;
+        if (teardown.resumeVideoDeadline) teardown.resumeVideoDeadline();
+        visHandler();
+        this._emit("w2a_click", { ...ctx, state: "opened", clicked: true, suspended: false, clickPhase: "returned" });
+        return true;
+      };
+      const suspendForClick = () => {
+        if (clickSuspended || ctx.completed) return false;
+        if (teardown.creditVideoTail) teardown.creditVideoTail();
+        if (ctx.completed) return false;
+        clickSuspended = true;
+        ctx.clicked = true;
+        const wanted = Number(this.cfg.clickReturnTimeoutMs);
+        const ceiling = Number.isFinite(wanted) && wanted >= 0 ? wanted : MAX_CLICK_SUSPEND_MS;
+        clickDeadlineAt = now() + Math.min(MAX_CLICK_SUSPEND_MS, ceiling);
+        if (teardown.pauseVideoDeadline) teardown.pauseVideoDeadline();
+        visHandler();
+        armClickTimer();
+        return true;
+      };
+      teardown.suspendForClick = suspendForClick;
+      teardown.resumeFromClick = () => resumeFromClick(true);
+      const visibilityHandler = () => {
+        if (clickSuspended && typeof document !== "undefined" && document.hidden !== true) {
+          resumeFromClick(false);
+          return;
+        }
+        visHandler();
+      };
+      teardown.visHandler = visibilityHandler;
+      if (typeof document.addEventListener === "function") document.addEventListener("visibilitychange", visibilityHandler);
+      const listenLifecycle = (target, type, handler) => {
+        if (!target || typeof target.addEventListener !== "function") return;
+        target.addEventListener(type, handler, true);
+        teardown.lifecycle.push([target, type, handler]);
+      };
+      const returnHandler = () => {
+        if (clickSuspended) resumeFromClick(false);
+      };
+      const pageHideHandler = (event) => {
+        visHandler();
+        if (!clickSuspended || event.persisted === true || ctx.completed) return;
+        this._finish(ctx, { state: "failed", reason: "click_left_page", clicked: true });
+      };
+      listenLifecycle(typeof window !== "undefined" ? window : null, "pageshow", returnHandler);
+      listenLifecycle(typeof document !== "undefined" ? document : null, "resume", returnHandler);
+      listenLifecycle(typeof window !== "undefined" ? window : null, "pagehide", pageHideHandler);
       const armCTA = () => {
         if (clickState !== "BLOCKED") return;
         clickState = "READY";
@@ -1248,11 +1404,19 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       const unlockClose = () => {
         closeArmed = true;
         close.textContent = "\xD7";
+        close.removeAttribute("data-state");
         close.style.pointerEvents = "auto";
         close.style.cursor = "pointer";
         close.style.color = "#ddd";
       };
-      if (closeAfterSecs <= 0) unlockClose();
+      const closeGatedOnEndcard = ctx.format === "rewarded" && isVideoCreative;
+      if (closeGatedOnEndcard) {
+        const wantedRewardMs = Number(this.cfg.videoRewardMs);
+        const rewardMs = Number.isFinite(wantedRewardMs) && wantedRewardMs >= 0 ? wantedRewardMs : 3e4;
+        close.textContent = `Watch ${Math.ceil(rewardMs / 1e3)}s`;
+        close.setAttribute("data-state", "locked");
+        afterVisibleMs(rewardMs + 15e3, unlockClose);
+      } else if (closeAfterSecs <= 0) unlockClose();
       else {
         const closeAt = closeAfterSecs * 1e3;
         whenActive(() => {
@@ -1356,8 +1520,9 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         );
         let absoluteStartedAt = null;
         let absoluteTimer = null;
+        let absoluteClickPausedAt = null;
         const armAbsoluteDeadline = () => {
-          if (absoluteStartedAt === null || ctx.completed) return;
+          if (absoluteStartedAt === null || absoluteClickPausedAt !== null || ctx.completed) return;
           if (absoluteTimer !== null) {
             dropTimer(absoluteTimer);
             absoluteTimer = null;
@@ -1378,12 +1543,26 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           absoluteStartedAt = Date.now();
           armAbsoluteDeadline();
         });
+        teardown.pauseVideoDeadline = () => {
+          if (absoluteStartedAt === null || absoluteClickPausedAt !== null) return;
+          absoluteClickPausedAt = Date.now();
+          if (absoluteTimer !== null) {
+            dropTimer(absoluteTimer);
+            absoluteTimer = null;
+          }
+        };
+        teardown.resumeVideoDeadline = () => {
+          if (absoluteClickPausedAt === null) return;
+          if (absoluteStartedAt !== null) absoluteStartedAt += Date.now() - absoluteClickPausedAt;
+          absoluteClickPausedAt = null;
+          armAbsoluteDeadline();
+        };
         let hasAdvanced = false;
         let lastAttentionMs = 0;
         let lastAdvanceVisibleMs = null;
         let rewardEligible = false;
         let playbackEnded = false;
-        const videoIsHidden = () => typeof document !== "undefined" && document.hidden === true;
+        const videoIsHidden = () => clickSuspended || typeof document !== "undefined" && document.hidden === true;
         const observeVideoProgress = () => {
           const progress = evidence.verdict(videoDurationMs());
           if (progress.attentionMs > lastAttentionMs) {
@@ -1417,6 +1596,12 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         const endEpoch = (creditTail) => {
           if (creditTail) sampleVideo(true);
           evidence.break();
+        };
+        teardown.creditVideoTail = () => {
+          try {
+            endEpoch(true);
+          } catch {
+          }
         };
         for (const evt of ["timeupdate", "playing", "ratechange"]) {
           vid.addEventListener(evt, () => sampleVideo());
@@ -1590,6 +1775,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           fireCompletionTrackers();
           settleVideoReward();
           backdrop.setAttribute("data-phase", "endcard");
+          if (closeGatedOnEndcard) unlockClose();
         });
         vid.addEventListener("loadedmetadata", () => {
           const b = ratioBucket(vid.videoWidth, vid.videoHeight);
@@ -1701,14 +1887,9 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         }
         clickState = "CLICKED";
         cta.style.pointerEvents = "none";
-        this._finish(ctx, closedEvent({
-          // impression fields come from ctx (single source of truth for all
-          // terminal paths); repeating them here is how they drifted apart before
-          clicked: true,
-          // `visibilityEnforced` now rides on ctx for every exit, not just this one
-          ...e.isTrusted ? {} : { synthetic: true }
-          // синтетика помечается явно
-        }));
+        if (!e.isTrusted) ctx.synthetic = true;
+        if (!suspendForClick()) return;
+        this._emit("w2a_click", { ...ctx, state: "opened", clicked: true, suspended: true, clickPhase: "suspended" });
       });
       if (ctx.format === "rewarded") {
         const wanted = Number(this.cfg.rewardSecs);
@@ -1733,6 +1914,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
             const configured = Number(this.cfg.videoRewardMs);
             const seconds = Math.ceil((Number.isFinite(configured) && configured >= 0 ? configured : 3e4) / 1e3);
             rewardBtn.textContent = `Watch ${seconds} seconds to earn reward`;
+            if (closeGatedOnEndcard) rewardBtn.style.display = "none";
             return;
           }
           rewardBtn.textContent = `Reward in ${Math.ceil(floorMs / 1e3)}s\u2026`;
@@ -1981,6 +2163,17 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           if (typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", teardown.visHandler);
           teardown.visHandler = null;
         }
+        if (teardown.lifecycle) {
+          for (const [target, type, handler] of teardown.lifecycle) {
+            try {
+              target.removeEventListener(type, handler, true);
+            } catch {
+            }
+          }
+          teardown.lifecycle.length = 0;
+        }
+        teardown.suspendForClick = null;
+        teardown.resumeFromClick = null;
         if (teardown.abortCreative) {
           teardown.abortCreative();
           teardown.abortCreative = null;

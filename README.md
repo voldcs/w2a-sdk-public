@@ -9,19 +9,22 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: published on the CDN.** Version 0.1.6 supersedes 0.1.5: the
-Install button is sized in proportion to the screen, between a floor of its old
-size and a ceiling of 1.5x that. At the 2026-08-11T09:10:59Z check the 0.1.6 tag
-was present and the exact CDN URL below returned JavaScript whose SHA-256 and
-SRI match `release.json`. npm is still unpublished.
+**Release status: candidate, not yet verified on the CDN.** Version 0.2.0
+supersedes 0.1.6 and changes the show lifecycle: a tap on Install now SUSPENDS
+the ad instead of ending it, so a player who leaves for the store comes back to
+the ad they left. It carries a new non-terminal `w2a_click` event, a correlated
+`resumeActive(requestId)` for native hosts, a rewarded video whose close control
+is gated on the end card, and a sound control that reads as one. Publication
+state is recorded in `release.json` and is stamped only after the tag is pushed
+and the exact CDN URL is fetched and compared. npm is still unpublished.
 
 ## Install / include
 
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.1.6/dist/w2a-sdk.min.js"
-        integrity="sha384-iNetw9or0TTaY6k/+eudUqIorHGJicY8FOKWrsS0pPD5swD6rTAIQ68JBSj905wd"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.2.0/dist/w2a-sdk.min.js"
+        integrity="sha384-UtTaJfqkI5BOadhONv8R5OIYLmv5AvH18MYcK98ROYw8tYiKLQkC4blK38h7gS9r"
         crossorigin="anonymous"></script>
 ```
 
@@ -235,5 +238,5 @@ npm pack --dry-run
 ```
 
 The build is pinned to official `esbuild` 0.28.1 and must reproduce all three
-committed bundles byte-for-byte. Version 0.1.6, demo/preview grade. Release
+committed bundles byte-for-byte. Version 0.2.0, demo/preview grade. Release
 hashes and the canonical core commit are recorded in `release.json`.
