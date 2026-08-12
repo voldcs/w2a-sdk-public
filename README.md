@@ -9,14 +9,14 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: candidate, not yet verified on the CDN.** Version 0.2.0
+**Release status: published on the CDN.** Version 0.2.0
 supersedes 0.1.6 and changes the show lifecycle: a tap on Install now SUSPENDS
 the ad instead of ending it, so a player who leaves for the store comes back to
 the ad they left. It carries a new non-terminal `w2a_click` event, a correlated
 `resumeActive(requestId)` for native hosts, a rewarded video whose close control
-is gated on the end card, and a sound control that reads as one. Publication
-state is recorded in `release.json` and is stamped only after the tag is pushed
-and the exact CDN URL is fetched and compared. npm is still unpublished.
+is gated on the end card, and a sound control that reads as one. At the 2026-08-12T16:56:30Z check the 0.2.0 tag was present and the
+exact CDN URL below returned JavaScript whose SHA-256 and SRI match
+`release.json`. npm is still unpublished.
 
 ## Install / include
 
