@@ -1,4 +1,4 @@
-/* w2a-src-sha256:e3b4c753587057cbcbced884aa5febf20bd0a6ede8f604b6c294d6504c3d7309 */
+/* w2a-src-sha256:d49f9c7aa43a338aa3d8b5c1dc64cc9f5766a6c86b14f2d9d1e96cf23723ae8e */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -1346,6 +1346,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         clickSuspended = false;
         if (teardown.resumeVideoDeadline) teardown.resumeVideoDeadline();
         visHandler();
+        if (teardown.resumeVideoEvidence) teardown.resumeVideoEvidence();
         this._emit("w2a_click", { ...ctx, state: "opened", clicked: true, suspended: false, clickPhase: "returned" });
         return true;
       };
@@ -1609,6 +1610,12 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           } catch {
           }
         };
+        teardown.resumeVideoEvidence = () => {
+          try {
+            sampleVideo();
+          } catch {
+          }
+        };
         for (const evt of ["timeupdate", "playing", "ratechange"]) {
           vid.addEventListener(evt, () => sampleVideo());
         }
@@ -1778,6 +1785,11 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           endEpoch(true);
           evidence.end();
           playbackEnded = true;
+          absoluteStartedAt = null;
+          if (absoluteTimer !== null) {
+            dropTimer(absoluteTimer);
+            absoluteTimer = null;
+          }
           fireCompletionTrackers();
           settleVideoReward();
           backdrop.setAttribute("data-phase", "endcard");

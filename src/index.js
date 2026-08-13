@@ -1699,6 +1699,13 @@ class W2ASDK {
       clickSuspended = false
       if (teardown.resumeVideoDeadline) teardown.resumeVideoDeadline()
       visHandler()   // restarts the visible clock and re-arms every deadline
+      // `visHandler` resumes media from inside its visibility callback, before
+      // the visible clock is restarted below it. Chrome may emit `playing`
+      // synchronously in that window, so the ordinary listener sees the ad as
+      // still hidden and cannot establish the next evidence anchor. Seed the
+      // new epoch after the foreground clock is live; this credits no time by
+      // itself and preserves the break across the store visit.
+      if (teardown.resumeVideoEvidence) teardown.resumeVideoEvidence()
       // NOT `w2a_resume`. The ad is back on screen and the GAME must stay
       // paused; resume means "our ad is gone", and firing it here would un-pause
       // the game underneath an ad that is still running.
@@ -2178,6 +2185,7 @@ class W2ASDK {
       // Install before the next one, would otherwise have that 0.6s discarded -
       // and 0.6s is exactly the width of the reward gate they just crossed.
       teardown.creditVideoTail = () => { try { endEpoch(true) } catch { /* nothing open to close */ } }
+      teardown.resumeVideoEvidence = () => { try { sampleVideo() } catch { /* the next media event can retry */ } }
       for (const evt of ['timeupdate', 'playing', 'ratechange']) {
         vid.addEventListener(evt, () => sampleVideo())
       }
@@ -2417,6 +2425,11 @@ class W2ASDK {
         endEpoch(true)
         evidence.end()
         playbackEnded = true
+        // The absolute deadline is only a watchdog for media that never
+        // finishes. Once natural `ended` has been observed, leaving it armed
+        // turns a valid end card into `vast_deadline` a few seconds later.
+        absoluteStartedAt = null
+        if (absoluteTimer !== null) { dropTimer(absoluteTimer); absoluteTimer = null }
         // Completion tracking is independent from the publisher reward latch.
         // A close after 30 seconds can keep its reward without pretending the
         // VAST player emitted a natural completion, while a real ended fires

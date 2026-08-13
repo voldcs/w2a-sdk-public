@@ -26,17 +26,17 @@ const execFileAsync = promisify(execFile)
 const CANONICAL = 'https://w2a-ads-demo.azurewebsites.net'
 const RETIRED = ['w2a-demo.onrender.com']
 const RELEASE_SNAPSHOT = Object.freeze({
-  version: '0.2.1',
-  coreCommit: 'cc545c4d063f7ab8409367d8970f825556744ee8',
-  sourceSha256: 'e3b4c753587057cbcbced884aa5febf20bd0a6ede8f604b6c294d6504c3d7309',
+  version: '0.2.2',
+  coreCommit: '084b2ee13dcb30fd668451c6a36da1435285d849',
+  sourceSha256: 'd49f9c7aa43a338aa3d8b5c1dc64cc9f5766a6c86b14f2d9d1e96cf23723ae8e',
   typesSha256: '214c60960bc84c7d4e156d99a7bcb69ad2fc9063d824553cdbadf95ae1d1474c',
   licenseSha256: '6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e',
   artifacts: {
-    'dist/w2a-sdk.esm.js': '35ad78d323b79a5c269f4d865ad27cb0abe20f735d778f7a0cf852328624d6a6',
-    'dist/w2a-sdk.iife.js': 'e3cf81d4bbbe00ca3fac62e01328dd866a02f62544a8b3b6f5c35587e9689964',
-    'dist/w2a-sdk.min.js': 'c705a5e27b5315683c0158fc320005240b94e9fef9948065f905aed9ca91576f',
+    'dist/w2a-sdk.esm.js': '49be583f4d4a9dd09e0e33a752012079607174b337987679fdf2f0639b43b1c9',
+    'dist/w2a-sdk.iife.js': '92c68171929c01670a2db1cbe583fe433322a9f205010ed1c72f92dbbd24655b',
+    'dist/w2a-sdk.min.js': '24210e32c6532e7977bd1fbab29cc864419a1d582cda70ad753047f055f3e2ab',
   },
-  minSri: 'sha384-/CssAEGqc41/gZU/hEvY6n3pkDv/RODBYcGoLYCKlLPgLoKFCcJHySozRsENStte',
+  minSri: 'sha384-O2HGzFgZezwPTXDmBLFkCbPwstY+DABkneUEQCvMKfutCjiAazYU68sN+Hyu5Uqf',
 })
 
 async function sha(algorithm, path) {
@@ -132,7 +132,7 @@ test('release metadata pins one immutable SDK version', async () => {
   assert.ok(!readme.includes('@main'))
 })
 
-test('0.2.1 metadata identifies the reviewed core snapshot and build tool', async () => {
+test('0.2.2 metadata identifies the reviewed core snapshot and build tool', async () => {
   const release = JSON.parse(await readFile(join(ROOT, 'release.json'), 'utf8'))
 
   assert.equal(release.version, RELEASE_SNAPSHOT.version)
@@ -142,13 +142,13 @@ test('0.2.1 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.equal(release.licenseSha256, RELEASE_SNAPSHOT.licenseSha256)
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
-    status: "published",
-    checkedAt: "2026-08-13T23:06:24Z",
+    status: "not_published",
+    checkedAt: null,
     githubVisibility: "public",
-    tag: "0.2.1",
-    tagPresent: true,
-    jsdelivrHttpStatus: 200,
-    npmRegistryHttpStatus: 404,
+    tag: "0.2.2",
+    tagPresent: false,
+    jsdelivrHttpStatus: null,
+    npmRegistryHttpStatus: null,
   })
   for (const [relativePath, expected] of Object.entries(RELEASE_SNAPSHOT.artifacts)) {
     assert.equal(release.artifacts[relativePath]?.sha256, expected)
@@ -568,14 +568,13 @@ test('AppsFlyer guidance separates generic ingress from unavailable account rout
   assert.doesNotMatch(integration, /## Install postbacks \(AppsFlyer Push API\)/)
 })
 
-test('README records the verified 0.2.1 CDN publication and scoped npm result', async () => {
+test('README identifies the prepared 0.2.2 candidate without claiming publication', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
 
-  assert.ok(readme.includes('Release status: published on the CDN'))
-  assert.ok(readme.includes('supersedes 0.2.0'))
-  assert.ok(readme.includes('2026-08-13T23:06:24Z'))
-  assert.match(readme, /returned 55,575 bytes of JavaScript/)
-  assert.match(readme, /scoped registry probe for `@w2a\/sdk` returned HTTP 404/)
+  assert.ok(readme.includes('Release status: prepared, not yet published on the CDN'))
+  assert.ok(readme.includes('supersedes 0.2.1'))
+  assert.ok(readme.includes('have not yet been verified'))
+  assert.match(readme, /npm remains\s+outside this release procedure/)
 })
 
 test('the build uses one exact official esbuild dependency and is byte reproducible', async () => {
