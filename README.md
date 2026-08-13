@@ -9,12 +9,15 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: prepared, not yet published on the CDN.** Version 0.2.2
+**Release status: published on the CDN.** Version 0.2.2
 supersedes 0.2.1. It preserves the credible rewarded close countdown and fixes
 two clickout lifecycle boundaries. A native click return establishes a new
 evidence anchor only after visible playback timing resumes, and a natural video
-end disarms the absolute playback deadline. The immutable 0.2.2 tag and CDN URL
-below have not yet been verified. npm remains outside this release procedure.
+end disarms the absolute playback deadline. At the 2026-08-13T23:49:30Z check,
+the immutable 0.2.2 tag was present and the exact CDN URL below returned 55,699
+bytes of JavaScript whose SHA-256 and SRI match `release.json`. The scoped
+registry probe for `@w2a/sdk` returned HTTP 404, so this release procedure did
+not publish it through npm.
 
 ## Install / include
 
