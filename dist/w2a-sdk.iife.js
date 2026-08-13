@@ -1,4 +1,4 @@
-/* w2a-src-sha256:9fd2693c4d0647aa66c1fbd87a7a6a63f6111c47fbcf15bf3d36a671a5f8e36e */
+/* w2a-src-sha256:e3b4c753587057cbcbced884aa5febf20bd0a6ede8f604b6c294d6504c3d7309 */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -187,14 +187,12 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .w2a-backdrop button[data-w2a="close"]{z-index:60;
  top:calc(var(--w2a-t) + 12px);right:calc(var(--w2a-r) + 12px);left:auto;font-size:24px}
-/* Locked: a rewarded video's close slot carries the REASON it is not an exit
-   yet, instead of a countdown to one. Same corner and the same safe-area
-   anchors as the armed disc, so nothing jumps when it turns back into a \xD7 at
-   the end card. Both orientations get this for free - the anchors are the
-   orientation-aware part, and they are unchanged. */
+/* Locked: a rewarded video's close slot carries the credible playback still
+   owed. Fixed width and tabular digits keep the pill stable as the value moves.
+   It keeps the same safe-area anchors as the armed disc. */
 .w2a-backdrop button[data-w2a="close"][data-state="locked"]{
- width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
- font-weight:600;white-space:nowrap;color:#ddd}
+ width:112px;min-width:112px;padding:0 12px;border-radius:999px;font-size:14px;
+ font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;color:#ddd}
 /* A LABELLED PILL, not a disc with a speaker glyph. The glyph version was read
    as a mute switch by the first partner who saw it - reasonably, because a
    crossed-out speaker is what a mute control looks like everywhere else. It is
@@ -695,7 +693,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
     /**
      * Tell a suspended show that the player is back.
      *
-     * The browser signals - `visibilitychange`, `pageshow`, `focus` - cover an
+     * The browser signals - `visibilitychange`, `pageshow`, `resume` - cover an
      * ordinary web page, and the SDK listens to all of them. They do NOT cover a
      * native Android WebView: `WebView.onPause()` does not pause JavaScript and
      * the document is frequently never marked hidden at all, so a host that
@@ -1410,12 +1408,19 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         close.style.color = "#ddd";
       };
       const closeGatedOnEndcard = ctx.format === "rewarded" && isVideoCreative;
+      const wantedRewardMs = Number(this.cfg.videoRewardMs);
+      const videoRewardGateMs = Number.isFinite(wantedRewardMs) && wantedRewardMs >= 0 ? wantedRewardMs : 3e4;
+      const paintVideoRewardCountdown = (advancingMs = 0) => {
+        if (!closeGatedOnEndcard || closeArmed || rewardEarned) return;
+        const measured = Number(advancingMs);
+        const credibleMs = Number.isFinite(measured) && measured > 0 ? measured : 0;
+        const seconds = Math.ceil(Math.max(0, videoRewardGateMs - credibleMs) / 1e3);
+        close.textContent = `Watch ${seconds}s`;
+      };
       if (closeGatedOnEndcard) {
-        const wantedRewardMs = Number(this.cfg.videoRewardMs);
-        const rewardMs = Number.isFinite(wantedRewardMs) && wantedRewardMs >= 0 ? wantedRewardMs : 3e4;
-        close.textContent = `Watch ${Math.ceil(rewardMs / 1e3)}s`;
         close.setAttribute("data-state", "locked");
-        afterVisibleMs(rewardMs + 15e3, unlockClose);
+        paintVideoRewardCountdown();
+        afterVisibleMs(videoRewardGateMs + 15e3, unlockClose);
       } else if (closeAfterSecs <= 0) unlockClose();
       else {
         const closeAt = closeAfterSecs * 1e3;
@@ -1571,6 +1576,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
             lastAdvanceVisibleMs = visibleMs();
           }
           const advancingMs = Math.min(progress.coverageMs, progress.attentionMs);
+          paintVideoRewardCountdown(advancingMs);
           if (hasAdvanced && advancingMs >= videoBillableMs) qualify();
           if (ctx.format === "rewarded" && !rewardEligible && hasAdvanced && advancingMs >= videoRewardMs) {
             rewardEligible = true;
@@ -1801,8 +1807,8 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
               clearInterval(stallTimer);
               return;
             }
-            if (!hasAdvanced || lastAdvanceVisibleMs === null) return;
             sampleVideo();
+            if (!hasAdvanced || lastAdvanceVisibleMs === null) return;
             if (visibleMs() - lastAdvanceVisibleMs >= videoStallTimeoutMs) {
               clearInterval(stallTimer);
               this._finish(ctx, { state: "failed", reason: "vast_stalled" });
@@ -1911,10 +1917,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         if (byDwell) teardown.rewardSnapshot = grantDwell;
         whenActive(() => {
           if (!byDwell) {
-            const configured = Number(this.cfg.videoRewardMs);
-            const seconds = Math.ceil((Number.isFinite(configured) && configured >= 0 ? configured : 3e4) / 1e3);
-            rewardBtn.textContent = `Watch ${seconds} seconds to earn reward`;
-            if (closeGatedOnEndcard) rewardBtn.style.display = "none";
+            rewardBtn.style.display = "none";
             return;
           }
           rewardBtn.textContent = `Reward in ${Math.ceil(floorMs / 1e3)}s\u2026`;

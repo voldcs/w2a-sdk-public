@@ -253,7 +253,7 @@ export interface W2ASDK {
   /** Tell a click-suspended show that the player is back, for a native host
    *  that retained its WebView while an external store Activity covered it.
    *  Browser pages do not need this - the SDK listens to `visibilitychange`,
-   *  `pageshow`, `focus` and `resume` itself - but an Android WebView commonly
+   *  `pageshow` and `resume` itself - but an Android WebView commonly
    *  never marks its document hidden, so those signals never arrive. Correlated
    *  by requestId so a late Activity callback cannot resume a newer ad.
    *  Returns false if there is no suspended show with that id. */

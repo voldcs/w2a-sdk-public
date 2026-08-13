@@ -9,22 +9,21 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: published on the CDN.** Version 0.2.0
-supersedes 0.1.6 and changes the show lifecycle: a tap on Install now SUSPENDS
-the ad instead of ending it, so a player who leaves for the store comes back to
-the ad they left. It carries a new non-terminal `w2a_click` event, a correlated
-`resumeActive(requestId)` for native hosts, a rewarded video whose close control
-is gated on the end card, and a sound control that reads as one. At the 2026-08-12T16:56:30Z check the 0.2.0 tag was present and the
-exact CDN URL below returned JavaScript whose SHA-256 and SRI match
-`release.json`. npm is still unpublished.
+**Release status: prepared, not yet published on the CDN.** Version 0.2.1
+supersedes 0.2.0. Its rewarded close control shows the remaining credible
+playback time and freezes while video is paused, buffering, seeking, over-speed,
+or hidden. The documented lifecycle signals now match the runtime:
+`visibilitychange`, `pageshow`, and native `resumeActive(requestId)`. The
+immutable 0.2.1 tag and CDN URL below have not yet been verified. npm remains
+outside this release procedure.
 
 ## Install / include
 
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.2.0/dist/w2a-sdk.min.js"
-        integrity="sha384-UtTaJfqkI5BOadhONv8R5OIYLmv5AvH18MYcK98ROYw8tYiKLQkC4blK38h7gS9r"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.2.1/dist/w2a-sdk.min.js"
+        integrity="sha384-/CssAEGqc41/gZU/hEvY6n3pkDv/RODBYcGoLYCKlLPgLoKFCcJHySozRsENStte"
         crossorigin="anonymous"></script>
 ```
 
@@ -238,5 +237,5 @@ npm pack --dry-run
 ```
 
 The build is pinned to official `esbuild` 0.28.1 and must reproduce all three
-committed bundles byte-for-byte. Version 0.2.0, demo/preview grade. Release
+committed bundles byte-for-byte. Version 0.2.1, demo/preview grade. Release
 hashes and the canonical core commit are recorded in `release.json`.

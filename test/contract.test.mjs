@@ -26,17 +26,17 @@ const execFileAsync = promisify(execFile)
 const CANONICAL = 'https://w2a-ads-demo.azurewebsites.net'
 const RETIRED = ['w2a-demo.onrender.com']
 const RELEASE_SNAPSHOT = Object.freeze({
-  version: '0.2.0',
-  coreCommit: '1a1247b5630bfef9246d6b37887273323d9a98fc',
-  sourceSha256: '9fd2693c4d0647aa66c1fbd87a7a6a63f6111c47fbcf15bf3d36a671a5f8e36e',
-  typesSha256: '94a6be28ef733ebbcfb47fc84372d4f95d2e49db3343247983b08040106de590',
+  version: '0.2.1',
+  coreCommit: 'cc545c4d063f7ab8409367d8970f825556744ee8',
+  sourceSha256: 'e3b4c753587057cbcbced884aa5febf20bd0a6ede8f604b6c294d6504c3d7309',
+  typesSha256: '214c60960bc84c7d4e156d99a7bcb69ad2fc9063d824553cdbadf95ae1d1474c',
   licenseSha256: '6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e',
   artifacts: {
-    'dist/w2a-sdk.esm.js': 'f4936c649454cbd97026059f73a4b9c6a99b56d77d8348db8d6a904e8bb7b34e',
-    'dist/w2a-sdk.iife.js': 'e72dd731d5a877a06f2926ca2a19975c5003d311ca36214fd59d76578ba5d128',
-    'dist/w2a-sdk.min.js': 'ec0ab07e703dbe2d4ca2821a403711fe7f59ebf5c4858125978bdf695d7a4e69',
+    'dist/w2a-sdk.esm.js': '35ad78d323b79a5c269f4d865ad27cb0abe20f735d778f7a0cf852328624d6a6',
+    'dist/w2a-sdk.iife.js': 'e3cf81d4bbbe00ca3fac62e01328dd866a02f62544a8b3b6f5c35587e9689964',
+    'dist/w2a-sdk.min.js': 'c705a5e27b5315683c0158fc320005240b94e9fef9948065f905aed9ca91576f',
   },
-  minSri: 'sha384-UtTaJfqkI5BOadhONv8R5OIYLmv5AvH18MYcK98ROYw8tYiKLQkC4blK38h7gS9r',
+  minSri: 'sha384-/CssAEGqc41/gZU/hEvY6n3pkDv/RODBYcGoLYCKlLPgLoKFCcJHySozRsENStte',
 })
 
 async function sha(algorithm, path) {
@@ -132,7 +132,7 @@ test('release metadata pins one immutable SDK version', async () => {
   assert.ok(!readme.includes('@main'))
 })
 
-test('0.2.0 metadata identifies the reviewed core snapshot and build tool', async () => {
+test('0.2.1 metadata identifies the reviewed core snapshot and build tool', async () => {
   const release = JSON.parse(await readFile(join(ROOT, 'release.json'), 'utf8'))
 
   assert.equal(release.version, RELEASE_SNAPSHOT.version)
@@ -142,13 +142,13 @@ test('0.2.0 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.equal(release.licenseSha256, RELEASE_SNAPSHOT.licenseSha256)
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
-    status: "published",
-    checkedAt: "2026-08-12T16:56:30Z",
+    status: "not_published",
+    checkedAt: null,
     githubVisibility: "public",
-    tag: "0.2.0",
-    tagPresent: true,
-    jsdelivrHttpStatus: 200,
-    npmRegistryHttpStatus: 404,
+    tag: "0.2.1",
+    tagPresent: false,
+    jsdelivrHttpStatus: null,
+    npmRegistryHttpStatus: null,
   })
   for (const [relativePath, expected] of Object.entries(RELEASE_SNAPSHOT.artifacts)) {
     assert.equal(release.artifacts[relativePath]?.sha256, expected)
@@ -217,6 +217,10 @@ test('public types cover ready claims, correlated cancellation, capabilities and
   ]) {
     assert.ok(types.includes(field), `W2AConfig must include ${field}`)
   }
+  assert.doesNotMatch(source, /The browser signals[^\n]*`focus`/,
+    'runtime JSDoc must not promise an unhandled focus lifecycle signal')
+  assert.doesNotMatch(types, /Browser pages do not need this[\s\S]{0,200}`focus`/,
+    'public types must not promise an unhandled focus lifecycle signal')
 
   const classBody = source.slice(source.indexOf('class W2ASDK {'), source.indexOf('const W2A = new W2ASDK'))
   const runtimeMethods = [...classBody.matchAll(/^  (?:async )?([A-Za-z][A-Za-z0-9]*)\([^\n]*\)\s*\{/gm)]
@@ -564,13 +568,13 @@ test('AppsFlyer guidance separates generic ingress from unavailable account rout
   assert.doesNotMatch(integration, /## Install postbacks \(AppsFlyer Push API\)/)
 })
 
-test('README records the verified 0.2.0 publication and the npm gap', async () => {
+test('README identifies the prepared 0.2.1 candidate without claiming publication', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
 
-  assert.ok(readme.includes('Release status: published on the CDN'))
-  assert.ok(readme.includes('supersedes 0.1.6'))
-  assert.ok(readme.includes('npm is'))
-  assert.ok(readme.includes('still unpublished'))
+  assert.ok(readme.includes('Release status: prepared, not yet published on the CDN'))
+  assert.ok(readme.includes('supersedes 0.2.0'))
+  assert.ok(readme.includes('have not yet been verified'))
+  assert.match(readme, /npm remains\s+outside this release procedure/)
 })
 
 test('the build uses one exact official esbuild dependency and is byte reproducible', async () => {

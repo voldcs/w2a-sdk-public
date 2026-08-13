@@ -195,14 +195,12 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .w2a-backdrop button[data-w2a="close"]{z-index:60;
  top:calc(var(--w2a-t) + 12px);right:calc(var(--w2a-r) + 12px);left:auto;font-size:24px}
-/* Locked: a rewarded video's close slot carries the REASON it is not an exit
-   yet, instead of a countdown to one. Same corner and the same safe-area
-   anchors as the armed disc, so nothing jumps when it turns back into a × at
-   the end card. Both orientations get this for free - the anchors are the
-   orientation-aware part, and they are unchanged. */
+/* Locked: a rewarded video's close slot carries the credible playback still
+   owed. Fixed width and tabular digits keep the pill stable as the value moves.
+   It keeps the same safe-area anchors as the armed disc. */
 .w2a-backdrop button[data-w2a="close"][data-state="locked"]{
- width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
- font-weight:600;white-space:nowrap;color:#ddd}
+ width:112px;min-width:112px;padding:0 12px;border-radius:999px;font-size:14px;
+ font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;color:#ddd}
 /* A LABELLED PILL, not a disc with a speaker glyph. The glyph version was read
    as a mute switch by the first partner who saw it - reasonably, because a
    crossed-out speaker is what a mute control looks like everywhere else. It is
@@ -802,7 +800,7 @@ class W2ASDK {
   /**
    * Tell a suspended show that the player is back.
    *
-   * The browser signals - `visibilitychange`, `pageshow`, `focus` - cover an
+   * The browser signals - `visibilitychange`, `pageshow`, `resume` - cover an
    * ordinary web page, and the SDK listens to all of them. They do NOT cover a
    * native Android WebView: `WebView.onPause()` does not pause JavaScript and
    * the document is frequently never marked hidden at all, so a host that
@@ -1853,29 +1851,38 @@ class W2ASDK {
     // `closeAfterSecs` is format-agnostic, so on a 30-second rewarded master the
     // × armed at five seconds and the player could wave the ad away a sixth of
     // the way in. The partner photographed exactly that. For rewarded video the
-    // close control is now gated on the creative PHASE - the end card - instead
-    // of on a wall of visible seconds, and until then the slot carries the
-    // reason it is locked rather than a countdown to an exit that should not be
-    // arriving.
+    // close control is gated on the creative PHASE - the end card - instead of
+    // becoming an exit after a wall-clock delay.
     //
     // VIDEO ONLY, deliberately. An interstitial keeps its five-second escape: an
     // interstitial video nobody can dismiss until it ends is a trap for the
-    // player and a policy problem for the publisher. And a rewarded IMAGE is its
-    // own end card from the first frame, so gating it the same way would arm the
-    // × instantly - strictly worse than the timer it replaced.
+    // player and a policy problem for the publisher. The locked video slot is an
+    // evidence countdown, not an exit countdown: it reaches zero only as the
+    // same credible playback that earns the reward advances. A rewarded IMAGE
+    // is its own end card from the first frame, so gating it the same way would
+    // arm the × instantly - strictly worse than the timer it replaced.
     const closeGatedOnEndcard = ctx.format === 'rewarded' && isVideoCreative
+    const wantedRewardMs = Number(this.cfg.videoRewardMs)
+    const videoRewardGateMs = Number.isFinite(wantedRewardMs) && wantedRewardMs >= 0
+      ? wantedRewardMs
+      : 30000
+    const paintVideoRewardCountdown = (advancingMs = 0) => {
+      if (!closeGatedOnEndcard || closeArmed || rewardEarned) return
+      const measured = Number(advancingMs)
+      const credibleMs = Number.isFinite(measured) && measured > 0 ? measured : 0
+      const seconds = Math.ceil(Math.max(0, videoRewardGateMs - credibleMs) / 1000)
+      close.textContent = `Watch ${seconds}s`
+    }
     if (closeGatedOnEndcard) {
-      const wantedRewardMs = Number(this.cfg.videoRewardMs)
-      const rewardMs = Number.isFinite(wantedRewardMs) && wantedRewardMs >= 0 ? wantedRewardMs : 30000
-      close.textContent = `Watch ${Math.ceil(rewardMs / 1000)}s`
       close.setAttribute('data-state', 'locked')
+      paintVideoRewardCountdown()
       // Trap door, not a countdown. Every known way a video dies already calls
       // `_finish` - `vast_deadline`, `vast_stalled`, `vast_never_advanced` - but
       // a creative that buffers forever without tripping any of them would leave
       // the player sealed inside an ad with no exit at all. The ceiling is far
       // enough past the reward gate that a healthy show reaches its end card
       // first and this never fires.
-      afterVisibleMs(rewardMs + 15000, unlockClose)
+      afterVisibleMs(videoRewardGateMs + 15000, unlockClose)
     } else if (closeAfterSecs <= 0) unlockClose()
     else {
       // Deferred until the ad is ACTIVATED, not merely rendered. The countdown
@@ -2119,6 +2126,7 @@ class W2ASDK {
         // by replaying one short stretch; coverage alone can be bought by fast
         // playback. Their minimum is credible advancing playback of new film.
         const advancingMs = Math.min(progress.coverageMs, progress.attentionMs)
+        paintVideoRewardCountdown(advancingMs)
         if (hasAdvanced && advancingMs >= videoBillableMs) qualify()
         if (ctx.format === 'rewarded' && !rewardEligible && hasAdvanced && advancingMs >= videoRewardMs) {
           rewardEligible = true
@@ -2458,11 +2466,11 @@ class W2ASDK {
         const stallTimer = setInterval(() => {
           if (ctx.completed) { clearInterval(stallTimer); return }
           if (playbackEnded || vid.ended === true) { clearInterval(stallTimer); return }
-          if (!hasAdvanced || lastAdvanceVisibleMs === null) return
           // A genuine advance can precede its delayed timeupdate event. Sampling
           // here keeps the watchdog tied to media state rather than event-loop
           // scheduling.
           sampleVideo()
+          if (!hasAdvanced || lastAdvanceVisibleMs === null) return
           if (visibleMs() - lastAdvanceVisibleMs >= videoStallTimeoutMs) {
             clearInterval(stallTimer)
             this._finish(ctx, { state: 'failed', reason: 'vast_stalled' })
@@ -2660,17 +2668,9 @@ class W2ASDK {
       if (byDwell) teardown.rewardSnapshot = grantDwell
       whenActive(() => {
         if (!byDwell) {
-          // rewardSecs belongs to dwell creatives. Showing that countdown on a
-          // video promised a payout several seconds into a 30-second film even
-          // though the real gate counts advancing media time independently.
-          const configured = Number(this.cfg.videoRewardMs)
-          const seconds = Math.ceil((Number.isFinite(configured) && configured >= 0 ? configured : 30000) / 1000)
-          rewardBtn.textContent = `Watch ${seconds} seconds to earn reward`
-          // The locked close slot now carries this same sentence in the corner,
-          // and printing it twice on one creative reads as a rendering fault
-          // rather than emphasis. The button comes back the moment it has
-          // something of its own to say - `paintEarned` reveals it.
-          if (closeGatedOnEndcard) rewardBtn.style.display = 'none'
+          // The locked close slot is the one video clock. The reward control
+          // returns when paintEarned has a distinct state to announce.
+          rewardBtn.style.display = 'none'
           return
         }
         rewardBtn.textContent = `Reward in ${Math.ceil(floorMs / 1000)}s…`
