@@ -142,13 +142,13 @@ test('0.3.0 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.equal(release.licenseSha256, RELEASE_SNAPSHOT.licenseSha256)
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
-    status: 'not_published',
-    checkedAt: null,
+    status: 'published',
+    checkedAt: '2026-08-14T19:14:33Z',
     githubVisibility: "public",
     tag: '0.3.0',
-    tagPresent: false,
-    jsdelivrHttpStatus: null,
-    npmRegistryHttpStatus: null,
+    tagPresent: true,
+    jsdelivrHttpStatus: 200,
+    npmRegistryHttpStatus: 404,
   })
   for (const [relativePath, expected] of Object.entries(RELEASE_SNAPSHOT.artifacts)) {
     assert.equal(release.artifacts[relativePath]?.sha256, expected)
@@ -669,13 +669,14 @@ test('AppsFlyer guidance separates generic ingress from unavailable account rout
   assert.doesNotMatch(integration, /## Install postbacks \(AppsFlyer Push API\)/)
 })
 
-test('README identifies the prepared 0.3.0 candidate without claiming publication', async () => {
+test('README records the verified 0.3.0 CDN publication and scoped npm result', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
 
-  assert.ok(readme.includes('Release status: prepared, not yet published on the CDN'))
+  assert.ok(readme.includes('Release status: published on the CDN'))
   assert.ok(readme.includes('supersedes 0.2.3'))
-  assert.ok(readme.includes('have not yet been verified'))
-  assert.match(readme, /npm remains outside this\s+release procedure/)
+  assert.ok(readme.includes('2026-08-14T19:14:33Z'))
+  assert.match(readme, /returned 57,735\s+bytes of JavaScript/)
+  assert.match(readme, /scoped\s+registry probe for `@w2a\/sdk` returned HTTP 404/)
 })
 
 test('the build uses one exact official esbuild dependency and is byte reproducible', async () => {

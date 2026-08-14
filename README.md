@@ -9,14 +9,16 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: prepared, not yet published on the CDN.** Version 0.3.0
+**Release status: published on the CDN.** Version 0.3.0
 supersedes 0.2.3. Successful gesture-safe claims now expose one correlated
 terminal `AdResult`, and `showAd()` returns the same result for direct shows.
 The legacy `showInterstitial()` and `showRewarded()` setup timing is unchanged.
 The bundled integrations use `claim.result` as terminal authority and do not
-start a partner ad over `busy` or `fullscreen_conflict`. The immutable 0.3.0
-tag and CDN URL below have not yet been verified. npm remains outside this
-release procedure.
+start a partner ad over `busy` or `fullscreen_conflict`. At the
+2026-08-14T19:14:33Z check, the immutable 0.3.0 tag was present and the exact
+CDN URL below returned 57,735 bytes of JavaScript whose SHA-256 and SRI match
+`release.json`. The scoped registry probe for `@w2a/sdk` returned HTTP 404, so
+this release procedure did not publish it through npm.
 
 ## Install / include
 
