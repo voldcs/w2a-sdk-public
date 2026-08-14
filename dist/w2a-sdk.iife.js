@@ -1,4 +1,4 @@
-/* w2a-src-sha256:a8286683daec44a7d5dcee2ef211bf78ca5812dd211002aaa12da7073ae3bb87 */
+/* w2a-src-sha256:9d59c60ceabb45c539bb6b100e4609c2ec49853230985f79ce07f2c6428fc440 */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -1200,6 +1200,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       cta.setAttribute("data-w2a", "cta");
       cta.target = isFramed() ? "_blank" : "_top";
       if (cta.target === "_blank") cta.rel = "noopener";
+      const clickPreservesDocument = () => cta.target === "_blank" || this.cfg.clickPreservesDocument === true;
       const rewardBtn = el("button", {
         background: "transparent",
         border: "1px solid #4b5163",
@@ -2009,6 +2010,10 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         clickState = "CLICKED";
         cta.style.pointerEvents = "none";
         if (!e.isTrusted) ctx.synthetic = true;
+        if (!clickPreservesDocument()) {
+          this._finish(ctx, closedEvent({ clicked: true, ...e.isTrusted ? {} : { synthetic: true } }));
+          return;
+        }
         if (!suspendForClick()) return;
         this._emit("w2a_click", { ...ctx, state: "opened", clicked: true, suspended: true, clickPhase: "suspended" });
       });

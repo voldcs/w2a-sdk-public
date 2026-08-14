@@ -1379,6 +1379,24 @@ class W2ASDK {
     // own top-level page. A top-level game keeps the existing same-tab route.
     cta.target = isFramed() ? '_blank' : '_top'
     if (cta.target === '_blank') cta.rel = 'noopener'
+    // Can this document still be here after the player taps Install?
+    //
+    // `_blank` opens a separate browsing context and leaves us running, so the
+    // ad can genuinely wait behind the store page. `_top` replaces us, and no
+    // amount of lifecycle listening changes that - the suspension machinery is
+    // simply not applicable there.
+    //
+    // A native host is the third case and it has to SAY so. An Android wrapper
+    // that intercepts the store URL and opens it with its own Intent keeps the
+    // WebView alive, but nothing observable from inside the page distinguishes
+    // that from an ordinary navigation. It is not guessable: `window.open` is
+    // no probe either, because a WebView with multiple windows disabled can
+    // return an object and then silently drop the request. So the host declares
+    // it, and pairs the declaration with `resumeActive(requestId)` from its own
+    // `onResume` - which is the only reliable return signal in that embedding
+    // anyway, since such a WebView often never marks its document hidden.
+    const clickPreservesDocument = () =>
+      cta.target === '_blank' || this.cfg.clickPreservesDocument === true
 
     // rewarded: кнопка награды/закрытия появляется после просмотра
     const rewardBtn = el('button', {
@@ -2749,6 +2767,18 @@ class W2ASDK {
       // is worse than announcing nothing: the contract for `clickPhase:
       // 'suspended'` is "the ad is still on screen, stay paused", so a host that
       // believes it re-pauses a game with no ad in front of it.
+      //
+      // SUSPEND ONLY WHERE THE DOCUMENT SURVIVES THE CLICK. A `_top` navigation
+      // replaces this document; nothing in it comes back, so there is no ad to
+      // return to and no timer left alive to end the wait. Pretending otherwise
+      // produced the worst of both worlds: the player still lost the ad, and the
+      // show was recorded as `failed / click_left_page` - a successful click
+      // filed as an error, which is a lie told to our own reporting. Here the
+      // click is what it has always been, the end of the show, and it says so.
+      if (!clickPreservesDocument()) {
+        this._finish(ctx, closedEvent({ clicked: true, ...(e.isTrusted ? {} : { synthetic: true }) }))
+        return
+      }
       if (!suspendForClick()) return
       this._emit('w2a_click', { ...ctx, state: 'opened', clicked: true, suspended: true, clickPhase: 'suspended' })
     })

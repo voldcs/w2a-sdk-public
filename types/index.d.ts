@@ -88,6 +88,20 @@ export interface W2AConfig {
    *  60000 ms: a suspended show holds the `active` slot, so it cannot wait
    *  indefinitely without refusing the game's next ad as busy. */
   clickReturnTimeoutMs?: number
+  /** Declare that a tap on Install leaves THIS document running - set it only
+   *  from a native host that intercepts the store URL and opens it itself, so
+   *  the WebView survives. It cannot be detected from inside the page: such a
+   *  WebView usually never marks its document hidden, and `window.open` is no
+   *  probe either, because one with multiple windows disabled can return an
+   *  object and then drop the request silently.
+   *
+   *  Without it, a click that targets `_top` replaces this document and the SDK
+   *  ends the show, which is what actually happens. A framed ad opens the store
+   *  in a separate context and suspends without needing this flag.
+   *
+   *  A host that sets it MUST also call `resumeActive(requestId)` from its own
+   *  resume callback; in that embedding no browser signal reports the return. */
+  clickPreservesDocument?: boolean
 }
 
 /** How a reward was arrived at. `visible_dwell` is a policy, not proof. */

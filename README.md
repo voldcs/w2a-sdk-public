@@ -9,7 +9,7 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: published on the CDN.** Version 0.3.0
+**Release status: prepared, not yet published on the CDN.** Version 0.3.0
 supersedes 0.2.3. Successful gesture-safe claims now expose one correlated
 terminal `AdResult`, and `showAd()` returns the same result for direct shows.
 The legacy `showInterstitial()` and `showRewarded()` setup timing is unchanged.
@@ -25,8 +25,8 @@ this release procedure did not publish it through npm.
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.0/dist/w2a-sdk.min.js"
-        integrity="sha384-R1j9uXSiSA0Lhz/ZIQwcbO5iJd9O8ZaQjqt0Aq1Nzo3cBN8RGi7JWl8QzKn1Vabl"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.1/dist/w2a-sdk.min.js"
+        integrity="sha384-XNEV+QYc4LNxjnpuGqYjTFdno4ZfKrFZjbO+TU8VMOnOBsHAydFdqVAGtkuz261H"
         crossorigin="anonymous"></script>
 ```
 
