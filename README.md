@@ -9,7 +9,7 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: prepared, not yet published on the CDN.** Version 0.3.0
+**Release status: published on the CDN.** Version 0.3.0
 supersedes 0.2.3. Successful gesture-safe claims now expose one correlated
 terminal `AdResult`, and `showAd()` returns the same result for direct shows.
 The legacy `showInterstitial()` and `showRewarded()` setup timing is unchanged.
