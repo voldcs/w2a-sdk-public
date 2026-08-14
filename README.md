@@ -9,12 +9,15 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: prepared, not yet published on the CDN.** Version 0.2.3
+**Release status: published on the CDN.** Version 0.2.3
 supersedes 0.2.2. It preserves the rewarded countdown and click-return fixes,
 and measures attention across each continuous credible playback epoch. Small
 phase changes between the media and wall clocks no longer make a complete watch
-depend on the browser's sampling cadence. The immutable 0.2.3 tag and CDN URL
-below have not yet been verified. npm remains outside this release procedure.
+depend on the browser's sampling cadence. At the 2026-08-14T00:44:49Z check,
+the immutable 0.2.3 tag was present and the exact CDN URL below returned 55,817
+bytes of JavaScript whose SHA-256 and SRI match `release.json`. The scoped
+registry probe for `@w2a/sdk` returned HTTP 404, so this release procedure did
+not publish it through npm.
 
 ## Install / include
 
