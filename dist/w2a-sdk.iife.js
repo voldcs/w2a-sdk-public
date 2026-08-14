@@ -1,4 +1,4 @@
-/* w2a-src-sha256:33704d01b12681572e282511bda4852019245aa5c41587fc790d17c7f0ffe0e3 */
+/* w2a-src-sha256:a8286683daec44a7d5dcee2ef211bf78ca5812dd211002aaa12da7073ae3bb87 */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -161,7 +161,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
  min-height:52px;min-height:clamp(52px,20vmin,78px);margin:0 0 0 auto;
  padding:0 30px;padding:0 clamp(30px,11.5vmin,45px);max-width:100%;
  border:0;border-radius:999px;
- background:linear-gradient(180deg,#35d17e 0%,#12a55b 100%);color:#fff;
+ background:linear-gradient(180deg,#35d17e 0%,#12a55b 100%);color:#000;
  box-shadow:0 6px 22px rgba(0,0,0,.45);
  font:inherit;font-size:17px;font-size:clamp(17px,6.67vmin,26px);
  line-height:1.2;font-weight:700;text-align:center;
@@ -392,6 +392,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
   var PUBLIC_STRING_FIELDS = Object.freeze([
     "state",
     "requestId",
+    "blockingRequestId",
     "format",
     "placement",
     "reason",
@@ -452,6 +453,38 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
     return Object.freeze(out);
   }
   var showTeardown = /* @__PURE__ */ new WeakMap();
+  var showSettlements = /* @__PURE__ */ new WeakMap();
+  function createShowSettlement(ctx) {
+    const existing = showSettlements.get(ctx);
+    if (existing) return existing.result;
+    let resolveResult;
+    const result = new Promise((resolve) => {
+      resolveResult = resolve;
+    });
+    showSettlements.set(ctx, { result, resolveResult, settled: false, rewarded: false });
+    return result;
+  }
+  function latchShowReward(ctx) {
+    const settlement = showSettlements.get(ctx);
+    if (settlement) settlement.rewarded = true;
+    return settlement ? settlement.rewarded : true;
+  }
+  function settleShow(ctx, terminal) {
+    const settlement = showSettlements.get(ctx);
+    if (!settlement || settlement.settled) return;
+    settlement.settled = true;
+    const result = {
+      requestId: terminal.requestId,
+      format: terminal.format,
+      placement: terminal.placement,
+      status: terminal.state,
+      rewarded: settlement.rewarded === true
+    };
+    if (typeof terminal.reason === "string") result.reason = terminal.reason;
+    if (typeof terminal.blockingRequestId === "string") result.blockingRequestId = terminal.blockingRequestId;
+    settlement.resolveResult(Object.freeze(result));
+    settlement.resolveResult = null;
+  }
   function createRewardEvidence(opts = {}) {
     const optNum = (v, d) => Number.isFinite(Number(v)) ? Number(v) : d;
     const minStepMs = optNum(opts.minStepMs, 500);
@@ -696,6 +729,25 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
     __setNow(fn) {
       _nowFn = fn || null;
     }
+    showAd(format, placement) {
+      const ctx = { requestId: cryptoId(), format, placement };
+      if (!this.cfg) return this._settleLocalShow(ctx, "not_initialised");
+      if (this.active) {
+        ctx.blockingRequestId = this.active.requestId;
+        return this._settleLocalShow(ctx, "busy");
+      }
+      const claim = this.tryShowReady(format, placement);
+      if (claim.started) return claim.result;
+      if (claim.reason === "not_ready") return this._settleLocalShow(ctx, claim.reason);
+      if (claim.reason === "fullscreen_conflict" || fullscreenBlocksOverlay()) {
+        return this._settleLocalShow(ctx, "fullscreen_conflict");
+      }
+      const result = createShowSettlement(ctx);
+      if (this._startDirectShow(ctx)) this._loadDirectShow(ctx).catch(() => {
+        if (!ctx.completed) this._finish(ctx, { state: "failed", reason: "internal_error" });
+      });
+      return result;
+    }
     showInterstitial(placement) {
       return this._show("interstitial", placement);
     }
@@ -733,18 +785,31 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       const teardown = showTeardown.get(ctx);
       return !!(teardown && teardown.resumeFromClick && teardown.resumeFromClick());
     }
+    _settleLocalShow(ctx, reason) {
+      const result = createShowSettlement(ctx);
+      this._finish(ctx, { state: "failed", reason });
+      return result;
+    }
+    _startDirectShow(ctx) {
+      this.active = ctx;
+      this._state({ ...ctx, state: "loading" });
+      return !ctx.completed && this.active === ctx;
+    }
     async _show(format, placement) {
       if (!this.cfg) throw new Error("W2A.init was not called");
       if (this.active) {
-        this._state({ requestId: cryptoId(), state: "failed", reason: "busy", format, placement });
+        const ctx2 = { requestId: cryptoId(), blockingRequestId: this.active.requestId, format, placement };
+        this._state({ ...ctx2, state: "failed", reason: "busy" });
         return;
       }
       const claim = this.tryShowReady(format, placement);
       if (claim.started) return;
       const ctx = { requestId: cryptoId(), format, placement };
-      this.active = ctx;
-      this._state({ ...ctx, state: "loading" });
-      if (ctx.completed || this.active !== ctx) return;
+      if (!this._startDirectShow(ctx)) return;
+      await this._loadDirectShow(ctx);
+    }
+    async _loadDirectShow(ctx) {
+      const { format, placement } = ctx;
       const r = await this._requestAd(ctx.requestId, format, placement);
       if (ctx.completed || this.active !== ctx) {
         if (r && r.resp) this._release(ctx.requestId, r.resp);
@@ -943,29 +1008,43 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
      * between the two. Nothing here awaits.
      */
     tryShowReady(format, placement) {
-      if (!this.cfg) return { started: false, reason: "not_initialised" };
+      const attemptId = cryptoId();
+      if (!this.cfg) return { started: false, attemptId, reason: "not_initialised" };
       const key = format + "|" + placement;
       const rec = this._preloads && this._preloads[key];
-      if (!rec) return { started: false, reason: "no_preload" };
+      const requestIdentity = rec && rec.requestId ? { requestId: rec.requestId } : {};
+      if (this.active) return {
+        started: false,
+        attemptId,
+        reason: "busy",
+        ...requestIdentity,
+        blockingRequestId: this.active.requestId
+      };
+      if (fullscreenBlocksOverlay()) return {
+        started: false,
+        attemptId,
+        reason: "fullscreen_conflict",
+        ...requestIdentity
+      };
+      if (!rec) return { started: false, attemptId, reason: "no_preload" };
       if (rec.state === "failed") {
         delete this._preloads[key];
-        return { started: false, reason: rec.reason || "not_ready", requestId: rec.requestId };
+        return { started: false, attemptId, reason: rec.reason || "not_ready", requestId: rec.requestId };
       }
-      if (rec.state !== "ready") return { started: false, reason: "not_ready", requestId: rec.requestId };
+      if (rec.state !== "ready") return { started: false, attemptId, reason: "not_ready", requestId: rec.requestId };
       if (Date.now() > rec.readyUntil) {
         this._discardPreload(key, "preload_expired");
-        return { started: false, reason: "preload_expired" };
+        return { started: false, attemptId, reason: "preload_expired", requestId: rec.requestId };
       }
-      if (this.active) return { started: false, reason: "busy" };
-      if (fullscreenBlocksOverlay()) return { started: false, reason: "fullscreen_conflict" };
       rec.state = "claimed";
       delete this._preloads[key];
       if (rec.expiryTimer) {
         clearTimeout(rec.expiryTimer);
         rec.expiryTimer = null;
       }
+      const result = createShowSettlement(rec.ctx);
       this._activate(rec.ctx);
-      return { started: true, requestId: rec.requestId };
+      return { started: true, attemptId, requestId: rec.requestId, result };
     }
     /** Tear down a preloaded (never shown) ad and hand its reservation back. */
     _discardPreload(key, reason) {
@@ -1119,7 +1198,8 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       const sub = el("div", null, { className: "w2a-subtitle", textContent: c.sub || "Block puzzle \xB7 Free" });
       const cta = el("a", null, { className: "w2a-cta", textContent: "Install" });
       cta.setAttribute("data-w2a", "cta");
-      cta.target = "_top";
+      cta.target = isFramed() ? "_blank" : "_top";
+      if (cta.target === "_blank") cta.rel = "noopener";
       const rewardBtn = el("button", {
         background: "transparent",
         border: "1px solid #4b5163",
@@ -1145,7 +1225,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       const grantReward = (report) => {
         if (ctx.format !== "rewarded" || rewardEarned || ctx.completed) return;
         rewardEarned = true;
-        Object.assign(ctx, report, { rewardEarned: true });
+        Object.assign(ctx, report, { rewardEarned: latchShowReward(ctx) });
         paintEarned();
         if (closeGatedOnEndcard) unlockClose();
         this._state({ ...ctx, state: "rewarded" });
@@ -2170,7 +2250,9 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           }
         }
       }
-      if (ev && ev.reason === "closed_before_reward" && ctx.rewardEarned === true) {
+      const settlement = showSettlements.get(ctx);
+      const rewarded = settlement ? settlement.rewarded === true : ctx.rewardEarned === true;
+      if (ev && ev.reason === "closed_before_reward" && rewarded) {
         ev = { ...ev };
         delete ev.reason;
       }
@@ -2230,8 +2312,14 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         if (this.overlay === ctx.overlay) this.overlay = null;
       }
       if (this.active === ctx) this.active = null;
-      if (ctx.paused) this._emit("w2a_resume", { ...ctx, ...ev, paused: false });
-      this._state({ ...ctx, ...ev });
+      const terminal = publicEventDto({
+        ...ctx,
+        ...ev,
+        ...settlement ? { rewardEarned: settlement.rewarded === true } : {}
+      });
+      settleShow(ctx, terminal);
+      if (ctx.paused) this._emit("w2a_resume", { ...terminal, paused: false });
+      this._state(terminal);
     }
     _state(s) {
       if (!STATES.includes(s.state)) return;

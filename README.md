@@ -9,23 +9,22 @@ are documented in [INTEGRATION.md](INTEGRATION.md).
 
 ## Release status
 
-**Release status: published on the CDN.** Version 0.2.3
-supersedes 0.2.2. It preserves the rewarded countdown and click-return fixes,
-and measures attention across each continuous credible playback epoch. Small
-phase changes between the media and wall clocks no longer make a complete watch
-depend on the browser's sampling cadence. At the 2026-08-14T00:44:49Z check,
-the immutable 0.2.3 tag was present and the exact CDN URL below returned 55,817
-bytes of JavaScript whose SHA-256 and SRI match `release.json`. The scoped
-registry probe for `@w2a/sdk` returned HTTP 404, so this release procedure did
-not publish it through npm.
+**Release status: prepared, not yet published on the CDN.** Version 0.3.0
+supersedes 0.2.3. Successful gesture-safe claims now expose one correlated
+terminal `AdResult`, and `showAd()` returns the same result for direct shows.
+The legacy `showInterstitial()` and `showRewarded()` setup timing is unchanged.
+The bundled integrations use `claim.result` as terminal authority and do not
+start a partner ad over `busy` or `fullscreen_conflict`. The immutable 0.3.0
+tag and CDN URL below have not yet been verified. npm remains outside this
+release procedure.
 
 ## Install / include
 
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.2.3/dist/w2a-sdk.min.js"
-        integrity="sha384-0XL1/oS8G0OGY3LO5K5OMJBsJH7wh1yYySOmD8E4K9ZWCrBOTPMVhH/rbTgx1Vnt"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.0/dist/w2a-sdk.min.js"
+        integrity="sha384-R1j9uXSiSA0Lhz/ZIQwcbO5iJd9O8ZaQjqt0Aq1Nzo3cBN8RGi7JWl8QzKn1Vabl"
         crossorigin="anonymous"></script>
 ```
 
@@ -41,10 +40,11 @@ const sdk = W2A.init({
   backend: 'https://w2a-ads-demo.azurewebsites.net',
   publisherId: 'your-pub-id',
   gameId: 'your-game-id',        // -> genre via the catalog
-  creativeFormat: 'image',       // 'image' | 'vast' | 'playable'
+  creativeFormat: 'vast',        // rewarded demand currently uses VAST
 })
 
 const TERMINAL = new Set(['closed', 'failed', 'no_fill', 'unsupported'])
+const OWNERSHIP_BLOCKERS = new Set(['busy', 'fullscreen_conflict'])
 const READY_HEADROOM_MS = 5000
 
 const preparations = new Map()
@@ -77,8 +77,8 @@ function onLevelAlmostComplete() {
 }
 let adOpportunityBusy = false
 
-// This global listener is for diagnostics only. Each show below owns its own
-// correlated listener because a stale terminal must never release a new show.
+// Progress events are for diagnostics. Terminal ownership comes from the
+// correlated result returned by each successful claim below.
 W2A.on('ad_state', (e) => {
   // e.state: loading | opened | closed | rewarded | failed | no_fill | unsupported
   if (TERMINAL.has(e.state)) { /* report diagnostics; click-time passback is below */ }
@@ -90,23 +90,16 @@ levelEndButton.addEventListener('click', () => {
   if (adOpportunityBusy) return
   adOpportunityBusy = true
   const placement = 'level_end'
-  let requestId = null
-  const off = W2A.on('ad_state', (e) => {
-    if (e.format !== 'interstitial' || e.placement !== placement || !e.requestId) return
-    if (requestId && e.requestId !== requestId) return
-    requestId ||= e.requestId
-    if (!TERMINAL.has(e.state)) return
-    off()
-    adOpportunityBusy = false
-    void prepareInterstitial()
-  })
   const claim = sdk.tryShowReady('interstitial', placement)
   if (claim.started) {
-    if (!requestId) requestId = claim.requestId || null
+    void Promise.resolve(claim.result)
+      .then(() => {
+        adOpportunityBusy = false
+        void prepareInterstitial()
+      }, () => {}) // an invalid rejection keeps provider ownership fail-closed
     return
   }
-  off()
-  if (claim.reason === 'busy') {
+  if (OWNERSHIP_BLOCKERS.has(claim.reason)) {
     adOpportunityBusy = false
     return
   }
@@ -135,60 +128,54 @@ void prepareRewarded()
 function onContinueOpportunity() {
   void prepareRewarded()
 }
+
 continueButton.addEventListener('click', () => {
   if (adOpportunityBusy) return
   adOpportunityBusy = true
-  // Every show owns a fresh listener and latch. Install the listener before the
-  // claim because activation emits `opened` synchronously.
   const placement = 'continue'
-  let requestId = null
-  let rewardEarned = false
-  const off = W2A.on('ad_state', (e) => {
-    if (e.format !== 'rewarded' || e.placement !== placement) return
-    if (!e.requestId) return
-    if (requestId && e.requestId !== requestId) return
-    requestId ||= e.requestId
-    if (e.state === 'rewarded') rewardEarned = true
-    if (TERMINAL.has(e.state)) {
-      off()
-      adOpportunityBusy = false
-      void prepareRewarded()
-      if (rewardEarned) grantReward()
-    }
-  })
   const claim = sdk.tryShowReady('rewarded', placement)
-  if (claim.started && !requestId) requestId = claim.requestId || null
-  if (!claim.started) {
-    off()
-    if (claim.reason === 'busy') {
-      adOpportunityBusy = false
-      return
-    }
-    // Host contract: start the partner SDK synchronously in this call stack and
-    // return true, false, or a Promise<boolean> when its reward decision is final.
-    let partnerShow
-    try {
-      partnerShow = showPartnerRewarded()
-    } catch {
-      adOpportunityBusy = false
-      void prepareRewarded()
-      return
-    }
-    // Hedge the next opportunity while the partner owns this one. The explicit
-    // near-opportunity hook still refreshes it if this reservation expires.
-    void prepareRewarded()
-    const finishPartnerShow = (earned) => {
+  if (claim.started) {
+    const finishW2AShow = (result) => {
       try {
-        if (earned === true) grantReward()
+        // Credit from result.rewarded only. Do not also credit the rewarded event.
+        if (result && result.rewarded === true) grantReward()
       } finally {
         adOpportunityBusy = false
         void prepareRewarded()
       }
     }
-    void Promise.resolve(partnerShow)
-      .then(finishPartnerShow, () => finishPartnerShow(false))
-      .catch(() => {})
+    void Promise.resolve(claim.result)
+      .then(finishW2AShow, () => {}) // an invalid rejection keeps ownership
+    return
   }
+  if (OWNERSHIP_BLOCKERS.has(claim.reason)) {
+    adOpportunityBusy = false
+    return
+  }
+  // Host contract: start the partner SDK synchronously in this call stack and
+  // return true, false, or a Promise<boolean> when its reward decision is final.
+  let partnerShow
+  try {
+    partnerShow = showPartnerRewarded()
+  } catch {
+    adOpportunityBusy = false
+    void prepareRewarded()
+    return
+  }
+  // Hedge the next opportunity while the partner owns this one. The explicit
+  // near-opportunity hook still refreshes it if this reservation expires.
+  void prepareRewarded()
+  const finishPartnerShow = (earned) => {
+    try {
+      if (earned === true) grantReward()
+    } finally {
+      adOpportunityBusy = false
+      void prepareRewarded()
+    }
+  }
+  void Promise.resolve(partnerShow)
+    .then(finishPartnerShow, () => finishPartnerShow(false))
+    .catch(() => {})
 })
 ```
 
@@ -239,5 +226,5 @@ npm pack --dry-run
 ```
 
 The build is pinned to official `esbuild` 0.28.1 and must reproduce all three
-committed bundles byte-for-byte. Version 0.2.3, demo/preview grade. Release
+committed bundles byte-for-byte. Version 0.3.0, demo/preview grade. Release
 hashes and the canonical core commit are recorded in `release.json`.

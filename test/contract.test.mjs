@@ -26,17 +26,17 @@ const execFileAsync = promisify(execFile)
 const CANONICAL = 'https://w2a-ads-demo.azurewebsites.net'
 const RETIRED = ['w2a-demo.onrender.com']
 const RELEASE_SNAPSHOT = Object.freeze({
-  version: '0.2.3',
-  coreCommit: '1a9750526e1c54aa7724b492412e3a6bb910e11a',
-  sourceSha256: '33704d01b12681572e282511bda4852019245aa5c41587fc790d17c7f0ffe0e3',
-  typesSha256: '214c60960bc84c7d4e156d99a7bcb69ad2fc9063d824553cdbadf95ae1d1474c',
+  version: '0.3.0',
+  coreCommit: '080c2244263403b0923931c7b81625b78ddb1eb4',
+  sourceSha256: 'a8286683daec44a7d5dcee2ef211bf78ca5812dd211002aaa12da7073ae3bb87',
+  typesSha256: '59a0c0ef3c5e4dfa40efca669bba16bac0120f3af94285177208ccaae37a2120',
   licenseSha256: '6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e',
   artifacts: {
-    'dist/w2a-sdk.esm.js': 'e171bea0b8256deda7a00bbb122060bd0d1326e4b4d52294c41aa94cbae8807e',
-    'dist/w2a-sdk.iife.js': '5e594f0d2ba75d4ae130b30865f0d6dcae789c054a7b038d86f9cba9b2f87451',
-    'dist/w2a-sdk.min.js': 'cd979385805c738a82f80a0b44723194d35b91124c76e560edf93e3bdf7dcbe1',
+    'dist/w2a-sdk.esm.js': '22ca4d08c187c6760f2a6242221205b414f6e50d5e63061a7312f6f9d20d194a',
+    'dist/w2a-sdk.iife.js': '173ce2fd99e8d666c531d9e4d838bd4f9c07b554050098c99e3ede7f86bafe59',
+    'dist/w2a-sdk.min.js': '4d5451ad311421bb4190e20254b83da999648041c9e618965c8288453f6c6d03',
   },
-  minSri: 'sha384-0XL1/oS8G0OGY3LO5K5OMJBsJH7wh1yYySOmD8E4K9ZWCrBOTPMVhH/rbTgx1Vnt',
+  minSri: 'sha384-R1j9uXSiSA0Lhz/ZIQwcbO5iJd9O8ZaQjqt0Aq1Nzo3cBN8RGi7JWl8QzKn1Vabl',
 })
 
 async function sha(algorithm, path) {
@@ -132,7 +132,7 @@ test('release metadata pins one immutable SDK version', async () => {
   assert.ok(!readme.includes('@main'))
 })
 
-test('0.2.3 metadata identifies the reviewed core snapshot and build tool', async () => {
+test('0.3.0 metadata identifies the reviewed core snapshot and build tool', async () => {
   const release = JSON.parse(await readFile(join(ROOT, 'release.json'), 'utf8'))
 
   assert.equal(release.version, RELEASE_SNAPSHOT.version)
@@ -142,13 +142,13 @@ test('0.2.3 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.equal(release.licenseSha256, RELEASE_SNAPSHOT.licenseSha256)
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
-    status: "published",
-    checkedAt: "2026-08-14T00:44:49Z",
+    status: 'not_published',
+    checkedAt: null,
     githubVisibility: "public",
-    tag: "0.2.3",
-    tagPresent: true,
-    jsdelivrHttpStatus: 200,
-    npmRegistryHttpStatus: 404,
+    tag: '0.3.0',
+    tagPresent: false,
+    jsdelivrHttpStatus: null,
+    npmRegistryHttpStatus: null,
   })
   for (const [relativePath, expected] of Object.entries(RELEASE_SNAPSHOT.artifacts)) {
     assert.equal(release.artifacts[relativePath]?.sha256, expected)
@@ -182,7 +182,7 @@ test('release artifacts match their source marker, hashes and SRI', async () => 
     'public license must match release.json')
 })
 
-test('public types cover ready claims, correlated cancellation, capabilities and video clocks', async () => {
+test('public types cover terminal results, ready claims, cancellation, capabilities and video clocks', async () => {
   const [source, types] = await Promise.all([
     readFile(join(ROOT, 'src/index.js'), 'utf8'),
     readFile(join(ROOT, 'types/index.d.ts'), 'utf8'),
@@ -206,9 +206,18 @@ test('public types cover ready claims, correlated cancellation, capabilities and
     'viewport: [number, number] | null',
   ]) assert.ok(types.includes(field), `W2ACapabilities must include ${field}`)
   assert.ok(types.includes('showInterstitial(placement: string): Promise<void>'),
-    'types must describe the async direct-show result')
+    'legacy interstitial setup timing must remain compatible')
   assert.ok(types.includes('showRewarded(placement: string): Promise<void>'))
+  assert.ok(types.includes('showAd(format: AdFormat, placement: string): Promise<AdResult>'),
+    'types must expose the direct terminal result API')
   assert.ok(types.includes('preload(format: AdFormat, placement: string): Promise<PreloadResult>'))
+  assert.ok(types.includes("export type AdTerminalStatus = 'closed' | 'failed' | 'no_fill' | 'unsupported'"))
+  assert.ok(types.includes('export interface AdResult {'))
+  assert.ok(types.includes('result: Promise<AdResult>'))
+  assert.ok(types.includes('export type ShowAttempt ='))
+  assert.ok(types.includes('export type ReadyAdClaim = ShowAttempt'))
+  assert.ok(types.includes('attemptId: string'))
+  assert.ok(types.includes('blockingRequestId?: string'))
   for (const field of [
     'videoRewardMs?: number',
     'videoStartTimeoutMs?: number',
@@ -267,12 +276,15 @@ test('public config types cover supported runtime keys without exposing internal
     `deprecated compatibility keys missing from W2AConfig: ${missingDeprecated.join(', ')}`)
 })
 
-test('rewarded docs preserve the per-show latch through every terminal', async () => {
+test('rewarded docs use the correlated result as the only reward authority', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
-  assert.ok(readme.includes("if (requestId && e.requestId !== requestId) return"),
-    'the sample must isolate concurrent or stale show events')
-  assert.ok(readme.includes('TERMINAL.has(e.state)'),
-    'a later terminal must not revoke a reward already latched by the show')
+  const useSection = readme.match(/## Use[\s\S]*?```js\n([\s\S]*?)\n```/)?.[1] || ''
+  assert.ok(useSection.includes('Promise.resolve(claim.result)'),
+    'a successful claim must settle from its correlated result')
+  assert.ok(useSection.includes('result && result.rewarded === true'),
+    'reward credit must come from the monotonic terminal result')
+  assert.doesNotMatch(useSection, /e\.state === 'rewarded'[\s\S]{0,120}grantReward\(/,
+    'progress events must not form a second reward-credit surface')
   assert.ok(readme.includes('videoRewardMs: 30000'),
     'the public release must state the 30-second advancing-playback gate')
   assert.ok(readme.includes("reason: 'closed_before_reward'"),
@@ -287,7 +299,9 @@ test('the integration sample prepares near opportunities and owns partner fallba
     'function onLevelAlmostComplete()',
     'function onContinueOpportunity()',
     'let adOpportunityBusy = false',
-    "if (claim.reason === 'busy')",
+    "const OWNERSHIP_BLOCKERS = new Set(['busy', 'fullscreen_conflict'])",
+    'if (OWNERSHIP_BLOCKERS.has(claim.reason))',
+    'Promise.resolve(claim.result)',
     'Promise.resolve(partnerShow)',
     'if (earned === true) grantReward()',
   ]) {
@@ -316,7 +330,10 @@ test('the integration sample refreshes expiring ads at explicit near-opportunity
   const levelEndButton = makeButton()
   const continueButton = makeButton()
   const W2A = {
-    init() { return sdk },
+    init(cfg) {
+      assert.equal(cfg.creativeFormat, 'vast', 'the rewarded sample must request a fillable format')
+      return sdk
+    },
     on(event, fn) {
       assert.equal(event, 'ad_state')
       listeners.add(fn)
@@ -338,12 +355,15 @@ test('the integration sample refreshes expiring ads at explicit near-opportunity
       const key = `${format}|${placement}`
       const started = this.isReady(format, placement)
       const requestId = `jit-${claims.length + 1}`
-      claims.push({ format, placement, started, requestId })
+      const record = { format, placement, started, requestId }
+      claims.push(record)
       if (started) {
         readyUntil.delete(key)
+        const result = new Promise((resolve) => { record.resolveResult = resolve })
         W2A.emit({ format, placement, requestId, state: 'opened' })
+        return { started, attemptId: `jit-attempt-${claims.length}`, requestId, result }
       }
-      return { started, requestId, reason: started ? undefined : 'preload_expired' }
+      return { started, attemptId: `jit-attempt-${claims.length}`, reason: 'preload_expired' }
     },
   }
   const sandbox = {
@@ -399,9 +419,11 @@ test('the integration sample refreshes expiring ads at explicit near-opportunity
   assert.equal(claims.filter((claim) => claim.format === 'rewarded').length, 0,
     'the shared guard must block a rewarded claim while an interstitial owns the slot')
   const interstitialClaim = claims.find((claim) => claim.format === 'interstitial')
-  W2A.emit({
-    format: 'interstitial', placement: 'level_end', requestId: interstitialClaim.requestId, state: 'closed',
+  interstitialClaim.resolveResult({
+    format: 'interstitial', placement: 'level_end', requestId: interstitialClaim.requestId,
+    status: 'closed', rewarded: false,
   })
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
   continueButton.click()
   assert.equal(claims.filter((claim) => claim.started).length, 2,
     'each refreshed opportunity must be claimed synchronously after ownership is released')
@@ -484,7 +506,75 @@ test('the integration sample owns partner rewarded fallback until its boolean te
   assert.equal(partnerCalls, 4, 'a rejected partner show must release the busy guard')
 })
 
-test('the integration sample serializes all providers and never passes back an SDK busy refusal', async () => {
+test('the integration sample waits for the correlated result before crediting W2A reward', async () => {
+  const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
+  const useSection = readme.match(/## Use[\s\S]*?```js\n([\s\S]*?)\n```/)
+  assert.ok(useSection, 'README must contain an executable JavaScript use example')
+
+  const listeners = new Set()
+  let claims = 0
+  let grants = 0
+  let resolveResult
+  const makeButton = () => ({
+    clickHandler: null,
+    addEventListener(type, fn) { if (type === 'click') this.clickHandler = fn },
+    click() { assert.ok(this.clickHandler); this.clickHandler() },
+  })
+  const levelEndButton = makeButton()
+  const continueButton = makeButton()
+  const sdk = {
+    preload() { return Promise.resolve({ filled: true, ready: true }) },
+    isReady() { return true },
+    tryShowReady(format, placement) {
+      claims++
+      const requestId = `reward-${claims}`
+      const result = new Promise((resolve) => { resolveResult = resolve })
+      return { started: true, attemptId: `reward-attempt-${claims}`, requestId, result }
+    },
+  }
+  const W2A = {
+    init() { return sdk },
+    on(event, fn) {
+      assert.equal(event, 'ad_state')
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    },
+    emit(event) { for (const fn of [...listeners]) fn(event) },
+  }
+  vm.runInNewContext(useSection[1], {
+    W2A,
+    levelEndButton,
+    continueButton,
+    showPartnerInterstitial() { throw new Error('partner interstitial must not run') },
+    showPartnerRewarded() { throw new Error('partner rewarded must not run') },
+    grantReward() { grants++ },
+    Promise,
+    Set,
+  }, { filename: 'README.md#result-authority' })
+
+  continueButton.click()
+  W2A.emit({
+    format: 'rewarded', placement: 'continue', requestId: 'reward-1', state: 'rewarded',
+  })
+  W2A.emit({
+    format: 'rewarded', placement: 'continue', requestId: 'reward-1', state: 'failed',
+  })
+  await Promise.resolve(); await Promise.resolve()
+  assert.equal(grants, 0, 'progress events must not credit a result-backed reward')
+  continueButton.click()
+  assert.equal(claims, 1, 'progress events must not release the active show')
+
+  resolveResult({
+    requestId: 'reward-1', format: 'rewarded', placement: 'continue',
+    status: 'failed', reason: 'vast_deadline', rewarded: true,
+  })
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  assert.equal(grants, 1, 'the terminal result must credit the monotonic reward once')
+  continueButton.click()
+  assert.equal(claims, 2, 'the terminal result must release the busy guard')
+})
+
+test('the integration sample serializes providers and blocks ownership-conflict passback', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
   const useSection = readme.match(/## Use[\s\S]*?```js\n([\s\S]*?)\n```/)
   assert.ok(useSection, 'README must contain an executable JavaScript use example')
@@ -492,7 +582,7 @@ test('the integration sample serializes all providers and never passes back an S
   const listeners = new Set()
   const claims = []
   let active = null
-  let externallyBusy = false
+  let externalBlocker = null
   let partnerInterstitial = 0
   let partnerRewarded = 0
   const makeButton = () => ({
@@ -516,14 +606,17 @@ test('the integration sample serializes all providers and never passes back an S
     isReady() { return true },
     tryShowReady(format, placement) {
       const requestId = `owned-${claims.length + 1}`
-      if (active || externallyBusy) {
-        claims.push({ format, placement, started: false, reason: 'busy' })
-        return { started: false, reason: 'busy' }
+      if (active || externalBlocker) {
+        const reason = externalBlocker || 'busy'
+        claims.push({ format, placement, started: false, reason })
+        return { started: false, attemptId: `owned-attempt-${claims.length}`, reason }
       }
-      active = { format, placement, requestId }
+      let resolveResult
+      const result = new Promise((resolve) => { resolveResult = resolve })
+      active = { format, placement, requestId, resolveResult }
       claims.push({ ...active, started: true })
       W2A.emit({ ...active, state: 'opened' })
-      return { started: true, requestId }
+      return { started: true, attemptId: `owned-attempt-${claims.length}`, requestId, result }
     },
   }
   vm.runInNewContext(useSection[1], {
@@ -546,14 +639,22 @@ test('the integration sample serializes all providers and never passes back an S
 
   const interstitial = active
   active = null
-  W2A.emit({ ...interstitial, state: 'closed' })
-  externallyBusy = true
+  interstitial.resolveResult({
+    format: interstitial.format, placement: interstitial.placement,
+    requestId: interstitial.requestId, status: 'closed', rewarded: false,
+  })
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  externalBlocker = 'busy'
+  levelEndButton.click()
+  assert.equal(partnerInterstitial, 0,
+    'an SDK busy refusal must not pass an interstitial back to a second provider')
+  externalBlocker = 'fullscreen_conflict'
   continueButton.click()
-  assert.equal(partnerRewarded, 0, 'an SDK busy refusal must not pass back to a second provider')
-  externallyBusy = false
+  assert.equal(partnerRewarded, 0,
+    'an SDK fullscreen refusal must not pass back over another fullscreen owner')
+  externalBlocker = null
   continueButton.click()
-  assert.equal(claims.at(-1).started, true, 'the busy refusal must release the local guard')
-  assert.equal(partnerInterstitial, 0)
+  assert.equal(claims.at(-1).started, true, 'an ownership refusal must release the local guard')
 })
 
 test('AppsFlyer guidance separates generic ingress from unavailable account routes', async () => {
@@ -568,14 +669,13 @@ test('AppsFlyer guidance separates generic ingress from unavailable account rout
   assert.doesNotMatch(integration, /## Install postbacks \(AppsFlyer Push API\)/)
 })
 
-test('README records the verified 0.2.3 CDN publication and scoped npm result', async () => {
+test('README identifies the prepared 0.3.0 candidate without claiming publication', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
 
-  assert.ok(readme.includes('Release status: published on the CDN'))
-  assert.ok(readme.includes('supersedes 0.2.2'))
-  assert.ok(readme.includes('2026-08-14T00:44:49Z'))
-  assert.match(readme, /returned 55,817\s+bytes of JavaScript/)
-  assert.match(readme, /scoped\s+registry probe for `@w2a\/sdk` returned HTTP 404/)
+  assert.ok(readme.includes('Release status: prepared, not yet published on the CDN'))
+  assert.ok(readme.includes('supersedes 0.2.3'))
+  assert.ok(readme.includes('have not yet been verified'))
+  assert.match(readme, /npm remains outside this\s+release procedure/)
 })
 
 test('the build uses one exact official esbuild dependency and is byte reproducible', async () => {

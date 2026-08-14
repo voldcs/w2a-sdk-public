@@ -103,6 +103,8 @@ export type RewardQuality = 'full' | 'threshold' | 'dwell_only' | 'not_earned'
  */
 export interface AdStateEvent {
   requestId: string
+  /** active show that refused this attempted call with `busy` */
+  blockingRequestId?: string
   format: AdFormat
   placement: string
   state: AdState
@@ -214,11 +216,30 @@ export interface PreloadResult {
   readinessProof?: string
 }
 
-export interface ReadyAdClaim {
-  started: boolean
+export type AdTerminalStatus = 'closed' | 'failed' | 'no_fill' | 'unsupported'
+
+export interface AdResult {
+  requestId: string
+  format: AdFormat
+  placement: string
+  status: AdTerminalStatus
   reason?: string
-  requestId?: string
+  rewarded: boolean
+  blockingRequestId?: string
 }
+
+export type ShowAttempt =
+  | { started: true; attemptId: string; requestId: string; result: Promise<AdResult> }
+  | {
+      started: false
+      attemptId: string
+      reason: string
+      requestId?: string
+      blockingRequestId?: string
+    }
+
+/** Backward-compatible name retained for existing integrations. */
+export type ReadyAdClaim = ShowAttempt
 
 export interface W2ACapabilities {
   framed: boolean
@@ -237,6 +258,8 @@ export function createRewardEvidence(opts?: {
 
 export interface W2ASDK {
   init(cfg: W2AConfig): W2ASDK
+  /** Show an ad and settle with the same terminal outcome emitted in ad_state. */
+  showAd(format: AdFormat, placement: string): Promise<AdResult>
   showInterstitial(placement: string): Promise<void>
   showRewarded(placement: string): Promise<void>
   /** Prefetch the ad decision and prepare its creative in a hidden overlay, so

@@ -1,7 +1,7 @@
 // W2A Web SDK - browser runtime, режим A (Portal Tag).
 // Реализует недостающий из TS-проекта ModeAExecutor: ad request -> рендер
 // оверлея -> billable impression -> clickout. Публичный API совпадает с
-// дизайном (init/showInterstitial/showRewarded/on). Ноль зависимостей.
+// дизайном (init/showAd/showInterstitial/showRewarded/on). Ноль зависимостей.
 //
 // Модель клика (из верифицированных ограничений): CTA - реальный DOM-элемент
 // на top-level, активируется ТОЛЬКО после подтверждения billable impression,
@@ -169,7 +169,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
  min-height:52px;min-height:clamp(52px,20vmin,78px);margin:0 0 0 auto;
  padding:0 30px;padding:0 clamp(30px,11.5vmin,45px);max-width:100%;
  border:0;border-radius:999px;
- background:linear-gradient(180deg,#35d17e 0%,#12a55b 100%);color:#fff;
+ background:linear-gradient(180deg,#35d17e 0%,#12a55b 100%);color:#000;
  box-shadow:0 6px 22px rgba(0,0,0,.45);
  font:inherit;font-size:17px;font-size:clamp(17px,6.67vmin,26px);
  line-height:1.2;font-weight:700;text-align:center;
@@ -481,7 +481,7 @@ function injectLayoutCss(doc) {
  * across a worker or postMessage boundary.
  */
 const PUBLIC_STRING_FIELDS = Object.freeze([
-  'state', 'requestId', 'format', 'placement', 'reason', 'detail', 'campaignId',
+  'state', 'requestId', 'blockingRequestId', 'format', 'placement', 'reason', 'detail', 'campaignId',
   'tier', 'impressionState', 'readinessProof', 'audio', 'playableSizing',
   'fullscreen', 'presentation', 'clickPhase',
   // A reward is money the PUBLISHER pays its own player, so the evidence behind
@@ -561,6 +561,39 @@ function publicEventDto(data) {
  * leak that was closed earlier.
  */
 const showTeardown = new WeakMap()
+const showSettlements = new WeakMap()
+
+function createShowSettlement(ctx) {
+  const existing = showSettlements.get(ctx)
+  if (existing) return existing.result
+  let resolveResult
+  const result = new Promise((resolve) => { resolveResult = resolve })
+  showSettlements.set(ctx, { result, resolveResult, settled: false, rewarded: false })
+  return result
+}
+
+function latchShowReward(ctx) {
+  const settlement = showSettlements.get(ctx)
+  if (settlement) settlement.rewarded = true
+  return settlement ? settlement.rewarded : true
+}
+
+function settleShow(ctx, terminal) {
+  const settlement = showSettlements.get(ctx)
+  if (!settlement || settlement.settled) return
+  settlement.settled = true
+  const result = {
+    requestId: terminal.requestId,
+    format: terminal.format,
+    placement: terminal.placement,
+    status: terminal.state,
+    rewarded: settlement.rewarded === true,
+  }
+  if (typeof terminal.reason === 'string') result.reason = terminal.reason
+  if (typeof terminal.blockingRequestId === 'string') result.blockingRequestId = terminal.blockingRequestId
+  settlement.resolveResult(Object.freeze(result))
+  settlement.resolveResult = null
+}
 
 export function createRewardEvidence(opts = {}) {
   const optNum = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d)
@@ -816,6 +849,25 @@ class W2ASDK {
   /** test seam: override the monotonic clock (null restores the real one) */
   __setNow(fn) { _nowFn = fn || null }
 
+  showAd(format, placement) {
+    const ctx = { requestId: cryptoId(), format, placement }
+    if (!this.cfg) return this._settleLocalShow(ctx, 'not_initialised')
+    if (this.active) {
+      ctx.blockingRequestId = this.active.requestId
+      return this._settleLocalShow(ctx, 'busy')
+    }
+    const claim = this.tryShowReady(format, placement)
+    if (claim.started) return claim.result
+    if (claim.reason === 'not_ready') return this._settleLocalShow(ctx, claim.reason)
+    if (claim.reason === 'fullscreen_conflict' || fullscreenBlocksOverlay()) {
+      return this._settleLocalShow(ctx, 'fullscreen_conflict')
+    }
+    const result = createShowSettlement(ctx)
+    if (this._startDirectShow(ctx)) this._loadDirectShow(ctx).catch(() => {
+      if (!ctx.completed) this._finish(ctx, { state: 'failed', reason: 'internal_error' })
+    })
+    return result
+  }
   showInterstitial(placement) { return this._show('interstitial', placement) }
   showRewarded(placement) { return this._show('rewarded', placement) }
 
@@ -852,6 +904,18 @@ class W2ASDK {
     return !!(teardown && teardown.resumeFromClick && teardown.resumeFromClick())
   }
 
+  _settleLocalShow(ctx, reason) {
+    const result = createShowSettlement(ctx)
+    this._finish(ctx, { state: 'failed', reason })
+    return result
+  }
+
+  _startDirectShow(ctx) {
+    this.active = ctx
+    this._state({ ...ctx, state: 'loading' })
+    return !ctx.completed && this.active === ctx
+  }
+
   async _show(format, placement) {
     if (!this.cfg) throw new Error('W2A.init was not called')
     if (this.active) {
@@ -861,7 +925,8 @@ class W2ASDK {
       // the case where a host needs to know WHICH of its calls was dropped. It
       // used to be omitted, which broke the published type declaring it required
       // and left a busy refusal indistinguishable from any other.
-      this._state({ requestId: cryptoId(), state: 'failed', reason: 'busy', format, placement })
+      const ctx = { requestId: cryptoId(), blockingRequestId: this.active.requestId, format, placement }
+      this._state({ ...ctx, state: 'failed', reason: 'busy' })
       return
     }
     // Gesture-safe fast path: a ready preloaded ad is claimed and shown
@@ -873,9 +938,12 @@ class W2ASDK {
     // the ad call, which means the player waits. Mediation hosts must not use
     // it - they call tryShowReady() and pass back when it says no.
     const ctx = { requestId: cryptoId(), format, placement }
-    this.active = ctx
-    this._state({ ...ctx, state: 'loading' })
-    if (ctx.completed || this.active !== ctx) return
+    if (!this._startDirectShow(ctx)) return
+    await this._loadDirectShow(ctx)
+  }
+
+  async _loadDirectShow(ctx) {
+    const { format, placement } = ctx
     const r = await this._requestAd(ctx.requestId, format, placement)
     // A host watchdog can cancel while the request is in flight. Its terminal
     // may start a newer show immediately, so the stale continuation must neither
@@ -884,7 +952,10 @@ class W2ASDK {
       if (r && r.resp) this._release(ctx.requestId, r.resp)
       return
     }
-    if (r.error) { this._finish(ctx, { state: 'failed', reason: r.error }); return } // active гарантированно освобождается
+    if (r.error) {
+      this._finish(ctx, { state: 'failed', reason: r.error })
+      return
+    } // active гарантированно освобождается
     const resp = r.resp
     if (!resp || resp.no_fill || !resp.creative) {
       // Preserve WHY there was no ad. An unsupported device is a permanent
@@ -1089,33 +1160,45 @@ class W2ASDK {
    * between the two. Nothing here awaits.
    */
   tryShowReady(format, placement) {
-    if (!this.cfg) return { started: false, reason: 'not_initialised' }
+    const attemptId = cryptoId()
+    if (!this.cfg) return { started: false, attemptId, reason: 'not_initialised' }
     const key = format + '|' + placement
     const rec = this._preloads && this._preloads[key]
-    if (!rec) return { started: false, reason: 'no_preload' }
+    const requestIdentity = rec && rec.requestId ? { requestId: rec.requestId } : {}
+    // Screen ownership dominates readiness. A mediation host may safely pass
+    // back `no_preload` or `not_ready`, but doing that while another show or a
+    // foreign fullscreen owns the screen stacks two providers. Check ownership
+    // first and leave any matching preload untouched for a later opportunity.
+    if (this.active) return {
+      started: false, attemptId, reason: 'busy', ...requestIdentity,
+      blockingRequestId: this.active.requestId,
+    }
+    // A fullscreen element we do not own means something else is already
+    // covering the screen - the game itself, or a video the player expanded.
+    // Refuse before the claim: after `started: true`, mediation cannot pass back.
+    if (fullscreenBlocksOverlay()) return {
+      started: false, attemptId, reason: 'fullscreen_conflict', ...requestIdentity,
+    }
+    if (!rec) return { started: false, attemptId, reason: 'no_preload' }
     if (rec.state === 'failed') {
       // A decided failure is CONSUMED here, so the next preload starts clean
       // instead of answering with a stale verdict forever.
       delete this._preloads[key]
-      return { started: false, reason: rec.reason || 'not_ready', requestId: rec.requestId }
+      return { started: false, attemptId, reason: rec.reason || 'not_ready', requestId: rec.requestId }
     }
-    if (rec.state !== 'ready') return { started: false, reason: 'not_ready', requestId: rec.requestId }
-    if (Date.now() > rec.readyUntil) { this._discardPreload(key, 'preload_expired'); return { started: false, reason: 'preload_expired' } }
-    if (this.active) return { started: false, reason: 'busy' }
-    // A fullscreen element we do not own means something else is already
-    // covering the screen - the game itself, or a video the player expanded.
-    // Refuse BEFORE the claim, never after: past the claim this method has
-    // promised `started: true`, and a failure emitted from inside _activate
-    // would tell the host the ad started and then that it failed, so the host
-    // never passes back and the slot is burnt for nothing.
-    if (fullscreenBlocksOverlay()) return { started: false, reason: 'fullscreen_conflict' }
+    if (rec.state !== 'ready') return { started: false, attemptId, reason: 'not_ready', requestId: rec.requestId }
+    if (Date.now() > rec.readyUntil) {
+      this._discardPreload(key, 'preload_expired')
+      return { started: false, attemptId, reason: 'preload_expired', requestId: rec.requestId }
+    }
     // Claim: remove from the ready cache and take sole ownership of teardown
     // BEFORE anything can run, so an expiry callback can no longer release it.
     rec.state = 'claimed'
     delete this._preloads[key]
     if (rec.expiryTimer) { clearTimeout(rec.expiryTimer); rec.expiryTimer = null }
+    const result = createShowSettlement(rec.ctx)
     this._activate(rec.ctx)
-    return { started: true, requestId: rec.requestId }
+    return { started: true, attemptId, requestId: rec.requestId, result }
   }
 
   /** Tear down a preloaded (never shown) ad and hand its reservation back. */
@@ -1292,7 +1375,10 @@ class W2ASDK {
     // trade-off is real and is NOT hidden - see `ctaGatedByImpression` below.
     const cta = el('a', null, { className: 'w2a-cta', textContent: 'Install' })
     cta.setAttribute('data-w2a', 'cta')
-    cta.target = '_top' // top-level навигация (мы можем быть в iframe игры-портала)
+    // Sandboxed portals commonly allow popups but forbid navigation of their
+    // own top-level page. A top-level game keeps the existing same-tab route.
+    cta.target = isFramed() ? '_blank' : '_top'
+    if (cta.target === '_blank') cta.rel = 'noopener'
 
     // rewarded: кнопка награды/закрытия появляется после просмотра
     const rewardBtn = el('button', {
@@ -1341,7 +1427,7 @@ class W2ASDK {
     const grantReward = (report) => {
       if (ctx.format !== 'rewarded' || rewardEarned || ctx.completed) return
       rewardEarned = true
-      Object.assign(ctx, report, { rewardEarned: true })
+      Object.assign(ctx, report, { rewardEarned: latchShowReward(ctx) })
       paintEarned()
       // EARNING IT IS ALSO AN EXIT. The close control on a rewarded video is
       // gated on the end card, and the end card is the end of the FILM - which
@@ -2983,7 +3069,9 @@ class W2ASDK {
     // boundary. rewardSnapshot closes that final playback epoch before this
     // terminal is emitted; if it latches the reward, the pre-snapshot reason is
     // no longer true and must not survive into the public event.
-    if (ev && ev.reason === 'closed_before_reward' && ctx.rewardEarned === true) {
+    const settlement = showSettlements.get(ctx)
+    const rewarded = settlement ? settlement.rewarded === true : ctx.rewardEarned === true
+    if (ev && ev.reason === 'closed_before_reward' && rewarded) {
       ev = { ...ev }
       delete ev.reason
     }
@@ -3050,6 +3138,11 @@ class W2ASDK {
     // next ad from inside the terminal callback; with `active` still set that
     // show was rejected as `busy` and silently lost.
     if (this.active === ctx) this.active = null
+    const terminal = publicEventDto({
+      ...ctx, ...ev,
+      ...(settlement ? { rewardEarned: settlement.rewarded === true } : {}),
+    })
+    settleShow(ctx, terminal)
     // Resume BEFORE the terminal, not after. A mediation host starts its OWN
     // fallback ad from inside the terminal callback and pauses the game to do
     // it. Emitting resume afterwards un-paused the game underneath the fallback
@@ -3064,8 +3157,8 @@ class W2ASDK {
     // `e.state` in a resume handler got `undefined` at runtime. The resume is
     // also the moment the host learns how the ad ended, so the terminal fields
     // belong on it.
-    if (ctx.paused) this._emit('w2a_resume', { ...ctx, ...ev, paused: false })
-    this._state({ ...ctx, ...ev })
+    if (ctx.paused) this._emit('w2a_resume', { ...terminal, paused: false })
+    this._state(terminal)
   }
 
   _state(s) {
