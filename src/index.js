@@ -573,6 +573,9 @@ export function createRewardEvidence(opts = {}) {
   const covered = []          // merged [startMs, endMs] of media actually played
   let attentionMs = 0
   let anchor = null           // { mediaMs, wallMs } of the last credible sample
+  let epochMediaMs = 0
+  let epochWallMs = 0
+  let epochAttentionMs = 0
   let ended = false
   let seeks = 0, rejectedJumps = 0, rateViolations = 0, maxRateSeen = 0
 
@@ -596,6 +599,15 @@ export function createRewardEvidence(opts = {}) {
   }
 
   const coveredMs = () => covered.reduce((sum, iv) => sum + (iv[1] - iv[0]), 0)
+  const resetEpoch = () => {
+    epochMediaMs = 0
+    epochWallMs = 0
+    epochAttentionMs = 0
+  }
+  const breakEpoch = () => {
+    anchor = null
+    resetEpoch()
+  }
 
   return {
     /**
@@ -607,21 +619,29 @@ export function createRewardEvidence(opts = {}) {
       const mediaMs = Number(s && s.mediaSec) * 1000
       const wallMs = Number(s && s.wallMs)
       const rate = Number(s && s.rate)
-      if (!Number.isFinite(mediaMs) || !Number.isFinite(wallMs)) { anchor = null; return }
+      if (!Number.isFinite(mediaMs) || !Number.isFinite(wallMs)) { breakEpoch(); return }
       if (Number.isFinite(rate) && rate > maxRateSeen) maxRateSeen = rate
       // Anything that is not "on screen and advancing at an honest rate" ends
       // the epoch. Dropping the anchor is the point: time accrued before a
       // pause must never license the media jump that follows it.
-      if (!s.playing || !s.visible || !(rate > 0)) { anchor = null; return }
-      if (rate > maxRate) { rateViolations++; anchor = null; return }
-      if (anchor === null) { anchor = { mediaMs, wallMs }; return }
+      if (!s.playing || !s.visible || !(rate > 0)) { breakEpoch(); return }
+      if (rate > maxRate) { rateViolations++; breakEpoch(); return }
+      if (anchor === null) { resetEpoch(); anchor = { mediaMs, wallMs }; return }
       const dw = wallMs - anchor.wallMs
       const dm = mediaMs - anchor.mediaMs
-      if (dw < 0) { anchor = { mediaMs, wallMs }; return }   // clock went backwards
+      if (dw < 0) { resetEpoch(); anchor = { mediaMs, wallMs }; return }   // clock went backwards
+      // Several listeners can observe the exact same clock point in one event
+      // turn. A redundant observation must be a no-op: resetting the epoch here
+      // would make evidence depend on how many listeners happened to sample it.
+      if (dm === 0 && dw === 0) return
       if (dm <= 0) {
         // Standing still while visible: a stall, or a backward seek. Neither is
         // coverage and neither is attention, but neither is a cheat either.
+        // The wall surplus accumulated before a stationary sample must not pay
+        // later media. Keep the current point as the next anchor, but start a
+        // fresh comparison window on either zero or backward progress.
         if (dm < 0) seeks++
+        resetEpoch()
         anchor = { mediaMs, wallMs }
         return
       }
@@ -630,11 +650,25 @@ export function createRewardEvidence(opts = {}) {
         // element reported as 1 while behaving otherwise.
         rejectedJumps++
         seeks++
+        resetEpoch()
         anchor = { mediaMs, wallMs }
         return
       }
       merge(anchor.mediaMs, mediaMs)
-      attentionMs += Math.min(dm, dw)
+      // Compare totals inside one uninterrupted playback epoch, not each sample
+      // in isolation. Real media and monotonic clocks trade a few milliseconds
+      // of lead between adjacent events. Summing min(dm, dw) discarded both
+      // halves of that harmless jitter and turned a 30-second wall/media span
+      // into 29.37 seconds of attention. Epoch totals let the next credible
+      // sample repay the difference, while every pause, hide, seek, invalid
+      // rate and rejected jump still destroys the bridge.
+      epochMediaMs += dm
+      epochWallMs += dw
+      const credibleAttentionMs = Math.min(epochMediaMs, epochWallMs)
+      if (credibleAttentionMs > epochAttentionMs) {
+        attentionMs += credibleAttentionMs - epochAttentionMs
+        epochAttentionMs = credibleAttentionMs
+      }
       anchor = { mediaMs, wallMs }
     },
 
@@ -648,7 +682,7 @@ export function createRewardEvidence(opts = {}) {
      * then looks like thirty seconds of honest playback. The caller has to say
      * when playback stopped, because nothing in the numbers can tell.
      */
-    break() { anchor = null },
+    break() { breakEpoch() },
 
     /** The creative reached its natural end. */
     end() { ended = true },

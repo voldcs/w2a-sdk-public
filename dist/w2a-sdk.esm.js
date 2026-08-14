@@ -1,4 +1,4 @@
-/* w2a-src-sha256:d49f9c7aa43a338aa3d8b5c1dc64cc9f5766a6c86b14f2d9d1e96cf23723ae8e */
+/* w2a-src-sha256:33704d01b12681572e282511bda4852019245aa5c41587fc790d17c7f0ffe0e3 */
 
 // src/index.js
 var STATES = ["loading", "opened", "closed", "rewarded", "failed", "no_fill", "unsupported"];
@@ -439,6 +439,9 @@ function createRewardEvidence(opts = {}) {
   const covered = [];
   let attentionMs = 0;
   let anchor = null;
+  let epochMediaMs = 0;
+  let epochWallMs = 0;
+  let epochAttentionMs = 0;
   let ended = false;
   let seeks = 0, rejectedJumps = 0, rateViolations = 0, maxRateSeen = 0;
   const atLeast = (a, b) => a >= b - 1e-9;
@@ -460,6 +463,15 @@ function createRewardEvidence(opts = {}) {
     for (const iv of keep) covered.push(iv);
   }
   const coveredMs = () => covered.reduce((sum, iv) => sum + (iv[1] - iv[0]), 0);
+  const resetEpoch = () => {
+    epochMediaMs = 0;
+    epochWallMs = 0;
+    epochAttentionMs = 0;
+  };
+  const breakEpoch = () => {
+    anchor = null;
+    resetEpoch();
+  };
   return {
     /**
      * One observation of the player. Call it on `timeupdate` and on every event
@@ -471,42 +483,53 @@ function createRewardEvidence(opts = {}) {
       const wallMs = Number(s && s.wallMs);
       const rate = Number(s && s.rate);
       if (!Number.isFinite(mediaMs) || !Number.isFinite(wallMs)) {
-        anchor = null;
+        breakEpoch();
         return;
       }
       if (Number.isFinite(rate) && rate > maxRateSeen) maxRateSeen = rate;
       if (!s.playing || !s.visible || !(rate > 0)) {
-        anchor = null;
+        breakEpoch();
         return;
       }
       if (rate > maxRate) {
         rateViolations++;
-        anchor = null;
+        breakEpoch();
         return;
       }
       if (anchor === null) {
+        resetEpoch();
         anchor = { mediaMs, wallMs };
         return;
       }
       const dw = wallMs - anchor.wallMs;
       const dm = mediaMs - anchor.mediaMs;
       if (dw < 0) {
+        resetEpoch();
         anchor = { mediaMs, wallMs };
         return;
       }
+      if (dm === 0 && dw === 0) return;
       if (dm <= 0) {
         if (dm < 0) seeks++;
+        resetEpoch();
         anchor = { mediaMs, wallMs };
         return;
       }
       if (dm > Math.max(minStepMs, tolerance * dw)) {
         rejectedJumps++;
         seeks++;
+        resetEpoch();
         anchor = { mediaMs, wallMs };
         return;
       }
       merge(anchor.mediaMs, mediaMs);
-      attentionMs += Math.min(dm, dw);
+      epochMediaMs += dm;
+      epochWallMs += dw;
+      const credibleAttentionMs = Math.min(epochMediaMs, epochWallMs);
+      if (credibleAttentionMs > epochAttentionMs) {
+        attentionMs += credibleAttentionMs - epochAttentionMs;
+        epochAttentionMs = credibleAttentionMs;
+      }
       anchor = { mediaMs, wallMs };
     },
     /**
@@ -520,7 +543,7 @@ function createRewardEvidence(opts = {}) {
      * when playback stopped, because nothing in the numbers can tell.
      */
     break() {
-      anchor = null;
+      breakEpoch();
     },
     /** The creative reached its natural end. */
     end() {
