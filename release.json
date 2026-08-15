@@ -1,7 +1,7 @@
 {
-  "version": "0.3.1",
-  "coreCommit": "ab11463a8e6498c0269e211e5c6e2119834f0925",
-  "sourceSha256": "9d59c60ceabb45c539bb6b100e4609c2ec49853230985f79ce07f2c6428fc440",
+  "version": "0.3.2",
+  "coreCommit": "f9ff0b54aaf832a6978bd6f20a50ccf738752371",
+  "sourceSha256": "b502d99d39a22976aad2ef8563a58030a4b6fb8b878e20ce368b3e46f1336f57",
   "typesSha256": "c05a3fb95a5e9094931de990d1fceba39a7e628346b7b891ebfe6c239cc3eb18",
   "licenseSha256": "6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e",
   "buildTool": {
@@ -9,25 +9,25 @@
     "version": "0.28.1"
   },
   "publication": {
-    "status": "published",
-    "checkedAt": "2026-08-14T23:15:29Z",
-    "githubVisibility": "PUBLIC",
-    "tag": "0.3.1",
-    "tagPresent": true,
-    "jsdelivrHttpStatus": 200,
-    "npmRegistryHttpStatus": 404
+    "status": "not_published",
+    "checkedAt": null,
+    "githubVisibility": "public",
+    "tag": "0.3.2",
+    "tagPresent": false,
+    "jsdelivrHttpStatus": null,
+    "npmRegistryHttpStatus": null
   },
-  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.1/dist/w2a-sdk.min.js",
+  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.2/dist/w2a-sdk.min.js",
   "artifacts": {
     "dist/w2a-sdk.esm.js": {
-      "sha256": "0597096fc5c1fbdbe1e138a53f3ae6c2a880f538bc0780d0f02060fe71c5e2e5"
+      "sha256": "8de58e93e4b415ebc6614cac38132a4108b4d42b07fee1e0a6ab1bdfbd0a1bb5"
     },
     "dist/w2a-sdk.iife.js": {
-      "sha256": "fe795f980b6794697d593aac38286ba2b0e088322d42052ec976ba13c71fbda3"
+      "sha256": "75236284d134d9e908fa1dd7617312d4096f0e1c70bc1614c27bd8ec39f63870"
     },
     "dist/w2a-sdk.min.js": {
-      "sha256": "8913e84fa2fa1447df962ca09025e37b7846ca2c04b557716cec1bcdf1636fe3",
-      "sri": "sha384-XNEV+QYc4LNxjnpuGqYjTFdno4ZfKrFZjbO+TU8VMOnOBsHAydFdqVAGtkuz261H"
+      "sha256": "62afd7c94b20451202f08e68af4ed4756e84fbe5789c20104eed4b2344232b6a",
+      "sri": "sha384-qRH8sXxRbT2Gek2fggp50hvGca2drYI+ANWUkxdI0eInZgI1cQo1v/NF5un4zrdE"
     }
   }
 }

@@ -780,7 +780,12 @@ class W2ASDK {
 
   init(cfg) {
     this.cfg = Object.assign(
-      { backend: '', publisherId: 'demo-pub', gameId: 'block-blitz', cell: 'matched', siteId: 'demo', creativeFormat: 'image', billableMs: 1000, rewardSecs: 5, requestTimeoutMs: 4000,
+      // `creativeFormat` is deliberately ABSENT from these defaults. Materialising
+      // one here made "the publisher did not choose" indistinguishable from "the
+      // publisher chose image", and the two need different answers: a rewarded
+      // ad has no image route anywhere, so the second is a permanent no-fill.
+      // Absence is resolved per ad format in `_requestBody`.
+      { backend: '', publisherId: 'demo-pub', gameId: 'block-blitz', cell: 'matched', siteId: 'demo', billableMs: 1000, rewardSecs: 5, requestTimeoutMs: 4000,
         // Video has separate clocks. maxVideoMs is retained as the legacy total
         // deadline from activation, never as an allowance added to the film.
         videoRewardMs: 30000, videoStartTimeoutMs: 10000, videoStallTimeoutMs: 10000,
@@ -988,7 +993,18 @@ class W2ASDK {
       publisherId: this.cfg.publisherId,
       gameId: this.cfg.gameId,
       placement, format, // format = ad format (interstitial/rewarded)
-      creativeFormat: this.cfg.creativeFormat || 'image', // image | vast | playable
+      // THE DEFAULT DEPENDS ON THE AD FORMAT, and it has to. A single `image`
+      // default meant that any integration which simply did not set this field
+      // asked for a rewarded IMAGE - a route no campaign has - so its rewarded
+      // ads were a guaranteed no-fill for ever, with a reason (`no_bid`) that
+      // says nothing about the cause. Our own templates set `image` globally,
+      // so the documentation walked publishers straight into it, and that is
+      // how it reached a partner.
+      //
+      // `auto` lets the server pick from the routes a campaign actually has,
+      // which is the right answer for rewarded and needs no update the day a
+      // rewarded image route exists. An explicit setting still wins outright.
+      creativeFormat: this.cfg.creativeFormat ?? (format === 'rewarded' ? 'auto' : 'image'),
       sessionId: this.sessionId,
       cell: this.cfg.cell,
       siteId: this.cfg.siteId,
