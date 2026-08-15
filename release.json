@@ -1,23 +1,23 @@
 {
-  "version": "0.3.2",
-  "coreCommit": "f9ff0b54aaf832a6978bd6f20a50ccf738752371",
+  "version": "0.3.3",
+  "coreCommit": "c7529d938480ebba6312ce8da4bf5a57de527a54",
   "sourceSha256": "b502d99d39a22976aad2ef8563a58030a4b6fb8b878e20ce368b3e46f1336f57",
-  "typesSha256": "c05a3fb95a5e9094931de990d1fceba39a7e628346b7b891ebfe6c239cc3eb18",
+  "typesSha256": "ee9abc2f9e8ab2a029cab71f537591c0aa01c9b9238bce2833ba2a5a712fd857",
   "licenseSha256": "6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e",
   "buildTool": {
     "name": "esbuild",
     "version": "0.28.1"
   },
   "publication": {
-    "status": "published",
-    "checkedAt": "2026-08-15T00:20:52Z",
-    "githubVisibility": "PUBLIC",
-    "tag": "0.3.2",
-    "tagPresent": true,
-    "jsdelivrHttpStatus": 200,
-    "npmRegistryHttpStatus": 404
+    "status": "not_published",
+    "checkedAt": null,
+    "githubVisibility": "public",
+    "tag": "0.3.3",
+    "tagPresent": false,
+    "jsdelivrHttpStatus": null,
+    "npmRegistryHttpStatus": null
   },
-  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.2/dist/w2a-sdk.min.js",
+  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.3/dist/w2a-sdk.min.js",
   "artifacts": {
     "dist/w2a-sdk.esm.js": {
       "sha256": "8de58e93e4b415ebc6614cac38132a4108b4d42b07fee1e0a6ab1bdfbd0a1bb5"

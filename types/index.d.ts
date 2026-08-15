@@ -1,6 +1,9 @@
 // Type definitions for @w2a/sdk (Portal Tag runtime, Mode A)
 
-export type CreativeFormat = 'image' | 'vast' | 'playable'
+/** A renderable creative type. `auto` is a POLICY, not a type: it asks the
+ *  server to pick from the routes a campaign actually has. */
+export type RenderableCreativeFormat = 'image' | 'vast' | 'playable'
+export type CreativeFormat = RenderableCreativeFormat | 'auto'
 export type AdFormat = 'interstitial' | 'rewarded'
 export type AdState = 'loading' | 'opened' | 'closed' | 'rewarded' | 'failed' | 'no_fill' | 'unsupported'
 export type W2AAudioMode = 'auto' | 'muted'
@@ -39,8 +42,14 @@ export interface W2AConfig {
   gameId?: string
   /** publisher price floor in CPM units */
   floorCpm?: number
-  /** requested creative format. Interstitial may fall back to image; rewarded
-   *  requires a dedicated route for the requested format. */
+  /** Requested creative policy. An explicit type is exact: a campaign that has
+   *  no route for it does not substitute another, it drops out of the auction.
+   *
+   *  LEAVE IT UNSET unless you need one exact type. Absence is resolved per ad
+   *  format - `auto` for rewarded, `image` for interstitial - and `auto` lets
+   *  the server pick from the routes a campaign really has. Setting `image`
+   *  globally is the one thing to avoid: no campaign has a rewarded image
+   *  route, so it makes every rewarded request a permanent no-fill. */
   creativeFormat?: CreativeFormat
   /** milliseconds before a qualified impression. Video counts credible
    *  advancing playback; dwell formats count visible time after load. */
