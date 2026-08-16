@@ -6,7 +6,10 @@ export type RenderableCreativeFormat = 'image' | 'vast' | 'playable'
 export type CreativeFormat = RenderableCreativeFormat | 'auto'
 export type AdFormat = 'interstitial' | 'rewarded'
 export type AdState = 'loading' | 'opened' | 'closed' | 'rewarded' | 'failed' | 'no_fill' | 'unsupported'
-export type W2AAudioMode = 'auto' | 'muted'
+/** The only legal audio mode. Ad audio is mandatory: there is no
+ *  publisher-side mute, and `init()` rejects anything else. A show muted by
+ *  browser policy recovers sound on the first trusted tap. */
+export type W2AAudioMode = 'auto'
 export type W2ACreativeFit = 'auto' | 'contain' | 'cover'
 /**
  * `ad_state` carries the lifecycle; a show emits exactly ONE terminal
@@ -80,7 +83,10 @@ export interface W2AConfig {
   /** @deprecated Accepted for source compatibility and ignored. The CTA is
    *  available immediately; genuine-input and one-shot checks still apply. */
   antiMisclickMs?: number
-  /** request audible video and fall back to muted, or always keep it muted */
+  /** @deprecated Accepted only as `'auto'`, which is the default; anything else
+   *  is rejected by `init()`. Ad audio is mandatory, so there is nothing left
+   *  to select. Kept so an integration that spells the default out still
+   *  compiles. A show muted by browser policy recovers on the first tap. */
   audio?: W2AAudioMode
   /** media fit policy. `cover` is honored only for crop-safe creatives. */
   creativeFit?: W2ACreativeFit

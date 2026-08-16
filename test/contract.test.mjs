@@ -26,17 +26,17 @@ const execFileAsync = promisify(execFile)
 const CANONICAL = 'https://w2a-ads-demo.azurewebsites.net'
 const RETIRED = ['w2a-demo.onrender.com']
 const RELEASE_SNAPSHOT = Object.freeze({
-  version: '0.3.3',
-  coreCommit: 'c7529d938480ebba6312ce8da4bf5a57de527a54',
-  sourceSha256: 'b502d99d39a22976aad2ef8563a58030a4b6fb8b878e20ce368b3e46f1336f57',
-  typesSha256: 'ee9abc2f9e8ab2a029cab71f537591c0aa01c9b9238bce2833ba2a5a712fd857',
+  version: '0.3.4',
+  coreCommit: 'acf1e085c7aa6f258f3ddcf61d0635a9d83e8c29',
+  sourceSha256: '04443ba398dca4aa0fb7f3d03af1b942d6a53e38d15f31f922221b9abdaee3e6',
+  typesSha256: 'bb2039f9912fe17beddf5f8c779308e0a0bf88b86eb6d5cf1c2293cd138ff1c4',
   licenseSha256: '6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e',
   artifacts: {
-    'dist/w2a-sdk.esm.js': '8de58e93e4b415ebc6614cac38132a4108b4d42b07fee1e0a6ab1bdfbd0a1bb5',
-    'dist/w2a-sdk.iife.js': '75236284d134d9e908fa1dd7617312d4096f0e1c70bc1614c27bd8ec39f63870',
-    'dist/w2a-sdk.min.js': '62afd7c94b20451202f08e68af4ed4756e84fbe5789c20104eed4b2344232b6a',
+    'dist/w2a-sdk.esm.js': '8ee02861045e1118dd87d20857496c29b3cffd4e8887661b1d291b8be98d9c65',
+    'dist/w2a-sdk.iife.js': 'c1f7a3ce98c83510f2101817e8a000843740354acab7316bc635552cb959eeb8',
+    'dist/w2a-sdk.min.js': 'b4155b6bd7681723adbd1efbae98dcbc8a008a2137ef00fafbd463fde9ef2188',
   },
-  minSri: 'sha384-qRH8sXxRbT2Gek2fggp50hvGca2drYI+ANWUkxdI0eInZgI1cQo1v/NF5un4zrdE',
+  minSri: 'sha384-LgB+mRHy3jZBqeH+VIOLtJQ7+TQl+TncWut/is7uGl0BqrP5q9/WRJrHLQePpH7A',
 })
 
 async function sha(algorithm, path) {
@@ -132,7 +132,7 @@ test('release metadata pins one immutable SDK version', async () => {
   assert.ok(!readme.includes('@main'))
 })
 
-test('0.3.3 metadata identifies the reviewed core snapshot and build tool', async () => {
+test('0.3.4 metadata identifies the reviewed core snapshot and build tool', async () => {
   const release = JSON.parse(await readFile(join(ROOT, 'release.json'), 'utf8'))
 
   assert.equal(release.version, RELEASE_SNAPSHOT.version)
@@ -142,13 +142,13 @@ test('0.3.3 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.equal(release.licenseSha256, RELEASE_SNAPSHOT.licenseSha256)
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
-    status: 'published',
-    checkedAt: '2026-08-15T00:55:21Z',
-    githubVisibility: "PUBLIC",
-    tag: '0.3.3',
-    tagPresent: true,
-    jsdelivrHttpStatus: 200,
-    npmRegistryHttpStatus: 404,
+    status: 'not_published',
+    checkedAt: null,
+    githubVisibility: null,
+    tag: '0.3.4',
+    tagPresent: false,
+    jsdelivrHttpStatus: null,
+    npmRegistryHttpStatus: null,
   })
   for (const [relativePath, expected] of Object.entries(RELEASE_SNAPSHOT.artifacts)) {
     assert.equal(release.artifacts[relativePath]?.sha256, expected)
@@ -261,7 +261,7 @@ test('public config types cover supported runtime keys without exposing internal
   const declaredKeys = new Set(Array.from(configBody.matchAll(/^\s*([A-Za-z_$][\w$]*)\??:/gm), (m) => m[1]))
   const runtimeOnly = new Set(['allowSyntheticClicks', 'cell', 'debugOverlay', 'deviceOverride',
     'diagnosticCapability', 'siteId'])
-  const deprecatedNoops = new Set(['antiMisclickMs'])
+  const deprecatedNoops = new Set(['antiMisclickMs', 'audio'])
   const missing = [...runtimeKeys].filter((key) => !declaredKeys.has(key) && !runtimeOnly.has(key)).sort()
   const unused = [...declaredKeys].filter((key) => !runtimeKeys.has(key) && !deprecatedNoops.has(key)).sort()
   const leakedInternal = [...runtimeOnly].filter((key) => declaredKeys.has(key)).sort()
@@ -669,7 +669,7 @@ test('AppsFlyer guidance separates generic ingress from unavailable account rout
   assert.doesNotMatch(integration, /## Install postbacks \(AppsFlyer Push API\)/)
 })
 
-test('README records the verified 0.3.3 CDN publication and scoped npm result', async () => {
+test('README records the verified 0.3.4 CDN publication and scoped npm result', async () => {
   const readme = await readFile(join(ROOT, 'README.md'), 'utf8')
 
   assert.ok(readme.includes('Release status: published on the CDN'))

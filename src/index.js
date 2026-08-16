@@ -779,7 +779,7 @@ class W2ASDK {
   }
 
   init(cfg) {
-    this.cfg = Object.assign(
+    const next = Object.assign(
       // `creativeFormat` is deliberately ABSENT from these defaults. Materialising
       // one here made "the publisher did not choose" indistinguishable from "the
       // publisher chose image", and the two need different answers: a rewarded
@@ -798,8 +798,10 @@ class W2ASDK {
         // `active` slot, and a game whose next ad is refused as `busy` because a
         // player wandered off yesterday is worse than a lost impression.
         clickReturnTimeoutMs: MAX_CLICK_SUSPEND_MS,
-        // 'auto' asks for sound and falls back to muted if the browser refuses.
-        // 'muted' is for publishers whose own game audio must keep playing.
+        // The only legal value. 'auto' asks for sound and falls back to muted
+        // ONLY while browser policy is refusing autoplay, which the sound
+        // control then recovers on the first trusted tap. See the rejection
+        // below for why there is no publisher-muted mode any more.
         audio: 'auto' },
       // Present-but-undefined keys are DROPPED rather than allowed to overwrite
       // a default. `{ ...base, billableMs: maybeFromRemoteJson }` is the ordinary
@@ -812,6 +814,25 @@ class W2ASDK {
       // aborts every ad request instead.
       cfg && Object.fromEntries(Object.entries(cfg).filter(([, v]) => v !== undefined)),
     )
+    // NO PUBLISHER-MUTED MODE. `audio: 'muted'` used to be honoured, and what it
+    // produced was an ad that could never make a sound: the recovery control is
+    // reachable only from `muted_by_policy`, and a config-muted show is excluded
+    // from ever becoming audible at all. So the one switch that turned sound off
+    // permanently was also the one nothing could undo.
+    //
+    // Ad audio is mandatory in this product. The requirement is met as "a player
+    // cannot silence an ad, and an ad silenced by browser policy recovers on the
+    // first trusted tap" - which leaves no room for a publisher-side mute. It
+    // rejects rather than coercing to 'auto' silently, because a publisher who
+    // asked for muted playback has an expectation about their own game audio and
+    // deserves to find that out at init rather than from a player complaint.
+    // Validated BEFORE it is adopted. Assigning first and throwing after would
+    // leave the SDK holding the configuration it just refused, so a publisher
+    // who caught the error would be running muted anyway.
+    if (next.audio !== 'auto') {
+      throw new TypeError(`W2A audio must be 'auto'; publisher-muted ads are not supported (got ${JSON.stringify(next.audio)})`)
+    }
+    this.cfg = next
     // A fresh configuration gets a fresh set of warnings. Whoever calls init()
     // again has changed something, and the point of the once-per-reason rule is
     // to stop repetition, not to hide the effect of a fix.
@@ -2163,17 +2184,19 @@ class W2ASDK {
       //
       // So: ask for sound, never assume we got it, and make silence recoverable
       // in one tap. Same ladder Google's IMA prescribes.
-      const wantAudio = this.cfg.audio !== 'muted'
       backdrop.setAttribute('data-kind', 'video')
       const vid = el('video', null, { className: 'w2a-media' })
-      vid.muted = !wantAudio
+      // Never muted by us. `init()` refuses any audio mode other than 'auto',
+      // so the only silence left is the browser refusing autoplay, which the
+      // sound control recovers.
+      vid.muted = false
       // No `autoplay` attribute: we call play() ourselves, at a moment we choose
       // for the gesture. Leaving the attribute on lets the browser start the
       // element on its own schedule, which is exactly how an unmuted element
       // ends up starting outside the gesture and getting refused.
       vid.playsInline = true; vid.setAttribute('playsinline', '')
       card.appendChild(vid)
-      ctx.audio = wantAudio ? 'requested' : 'muted_by_config'
+      ctx.audio = 'requested'
 
       // --- independent video clocks ---------------------------------------
       // requestTimeoutMs bounds the ad request before this renderer exists.
@@ -2613,7 +2636,7 @@ class W2ASDK {
         // Report what the player ACTUALLY got, not what we asked for. This is
         // the field that answers "do your ads have sound?" with evidence
         // instead of an opinion, per placement and per device.
-        if (ctx.audio !== 'muted_by_config') ctx.audio = vid.muted ? 'muted_by_policy' : 'audible'
+        ctx.audio = vid.muted ? 'muted_by_policy' : 'audible'
       }, { once: true })
 
       // `playing` is an intention, not evidence: a browser can fire it and then

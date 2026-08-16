@@ -1,33 +1,33 @@
 {
-  "version": "0.3.3",
-  "coreCommit": "c7529d938480ebba6312ce8da4bf5a57de527a54",
-  "sourceSha256": "b502d99d39a22976aad2ef8563a58030a4b6fb8b878e20ce368b3e46f1336f57",
-  "typesSha256": "ee9abc2f9e8ab2a029cab71f537591c0aa01c9b9238bce2833ba2a5a712fd857",
+  "version": "0.3.4",
+  "coreCommit": "acf1e085c7aa6f258f3ddcf61d0635a9d83e8c29",
+  "sourceSha256": "04443ba398dca4aa0fb7f3d03af1b942d6a53e38d15f31f922221b9abdaee3e6",
+  "typesSha256": "bb2039f9912fe17beddf5f8c779308e0a0bf88b86eb6d5cf1c2293cd138ff1c4",
   "licenseSha256": "6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e",
   "buildTool": {
     "name": "esbuild",
     "version": "0.28.1"
   },
   "publication": {
-    "status": "published",
-    "checkedAt": "2026-08-15T00:55:21Z",
-    "githubVisibility": "PUBLIC",
-    "tag": "0.3.3",
-    "tagPresent": true,
-    "jsdelivrHttpStatus": 200,
-    "npmRegistryHttpStatus": 404
+    "status": "not_published",
+    "checkedAt": null,
+    "githubVisibility": null,
+    "tag": "0.3.4",
+    "tagPresent": false,
+    "jsdelivrHttpStatus": null,
+    "npmRegistryHttpStatus": null
   },
-  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.3/dist/w2a-sdk.min.js",
+  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.4/dist/w2a-sdk.min.js",
   "artifacts": {
     "dist/w2a-sdk.esm.js": {
-      "sha256": "8de58e93e4b415ebc6614cac38132a4108b4d42b07fee1e0a6ab1bdfbd0a1bb5"
+      "sha256": "8ee02861045e1118dd87d20857496c29b3cffd4e8887661b1d291b8be98d9c65"
     },
     "dist/w2a-sdk.iife.js": {
-      "sha256": "75236284d134d9e908fa1dd7617312d4096f0e1c70bc1614c27bd8ec39f63870"
+      "sha256": "c1f7a3ce98c83510f2101817e8a000843740354acab7316bc635552cb959eeb8"
     },
     "dist/w2a-sdk.min.js": {
-      "sha256": "62afd7c94b20451202f08e68af4ed4756e84fbe5789c20104eed4b2344232b6a",
-      "sri": "sha384-qRH8sXxRbT2Gek2fggp50hvGca2drYI+ANWUkxdI0eInZgI1cQo1v/NF5un4zrdE"
+      "sha256": "b4155b6bd7681723adbd1efbae98dcbc8a008a2137ef00fafbd463fde9ef2188",
+      "sri": "sha384-LgB+mRHy3jZBqeH+VIOLtJQ7+TQl+TncWut/is7uGl0BqrP5q9/WRJrHLQePpH7A"
     }
   }
 }

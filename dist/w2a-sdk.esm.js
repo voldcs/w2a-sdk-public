@@ -1,4 +1,4 @@
-/* w2a-src-sha256:b502d99d39a22976aad2ef8563a58030a4b6fb8b878e20ce368b3e46f1336f57 */
+/* w2a-src-sha256:04443ba398dca4aa0fb7f3d03af1b942d6a53e38d15f31f922221b9abdaee3e6 */
 
 // src/index.js
 var STATES = ["loading", "opened", "closed", "rewarded", "failed", "no_fill", "unsupported"];
@@ -631,7 +631,7 @@ var W2ASDK = class {
     this._timers = [];
   }
   init(cfg) {
-    this.cfg = Object.assign(
+    const next = Object.assign(
       // `creativeFormat` is deliberately ABSENT from these defaults. Materialising
       // one here made "the publisher did not choose" indistinguishable from "the
       // publisher chose image", and the two need different answers: a rewarded
@@ -662,8 +662,10 @@ var W2ASDK = class {
         // `active` slot, and a game whose next ad is refused as `busy` because a
         // player wandered off yesterday is worse than a lost impression.
         clickReturnTimeoutMs: MAX_CLICK_SUSPEND_MS,
-        // 'auto' asks for sound and falls back to muted if the browser refuses.
-        // 'muted' is for publishers whose own game audio must keep playing.
+        // The only legal value. 'auto' asks for sound and falls back to muted
+        // ONLY while browser policy is refusing autoplay, which the sound
+        // control then recovers on the first trusted tap. See the rejection
+        // below for why there is no publisher-muted mode any more.
         audio: "auto"
       },
       // Present-but-undefined keys are DROPPED rather than allowed to overwrite
@@ -677,6 +679,10 @@ var W2ASDK = class {
       // aborts every ad request instead.
       cfg && Object.fromEntries(Object.entries(cfg).filter(([, v]) => v !== void 0))
     );
+    if (next.audio !== "auto") {
+      throw new TypeError(`W2A audio must be 'auto'; publisher-muted ads are not supported (got ${JSON.stringify(next.audio)})`);
+    }
+    this.cfg = next;
     this._explained = /* @__PURE__ */ new Set();
     return this;
   }
@@ -1581,14 +1587,13 @@ var W2ASDK = class {
     let rewardPath = "dwell";
     if (c.type === "vast" && c.vastUrl) {
       rewardPath = "video";
-      const wantAudio = this.cfg.audio !== "muted";
       backdrop.setAttribute("data-kind", "video");
       const vid = el("video", null, { className: "w2a-media" });
-      vid.muted = !wantAudio;
+      vid.muted = false;
       vid.playsInline = true;
       vid.setAttribute("playsinline", "");
       card.appendChild(vid);
-      ctx.audio = wantAudio ? "requested" : "muted_by_config";
+      ctx.audio = "requested";
       const cfgMs = (value, fallback) => {
         const n = Number(value);
         return Number.isFinite(n) && n >= 0 ? n : fallback;
@@ -1897,7 +1902,7 @@ var W2ASDK = class {
       });
       vid.addEventListener("playing", () => {
         videoStarted = true;
-        if (ctx.audio !== "muted_by_config") ctx.audio = vid.muted ? "muted_by_policy" : "audible";
+        ctx.audio = vid.muted ? "muted_by_policy" : "audible";
       }, { once: true });
       afterVisibleMs(videoStartTimeoutMs, () => {
         sampleVideo();

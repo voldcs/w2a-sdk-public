@@ -25,8 +25,8 @@ this release procedure did not publish it through npm.
 CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.3/dist/w2a-sdk.min.js"
-        integrity="sha384-qRH8sXxRbT2Gek2fggp50hvGca2drYI+ANWUkxdI0eInZgI1cQo1v/NF5un4zrdE"
+<script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.4/dist/w2a-sdk.min.js"
+        integrity="sha384-LgB+mRHy3jZBqeH+VIOLtJQ7+TQl+TncWut/is7uGl0BqrP5q9/WRJrHLQePpH7A"
         crossorigin="anonymous"></script>
 ```
 
