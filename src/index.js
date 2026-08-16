@@ -878,6 +878,15 @@ class W2ASDK {
   showAd(format, placement) {
     const ctx = { requestId: cryptoId(), format, placement }
     if (!this.cfg) return this._settleLocalShow(ctx, 'not_initialised')
+    // A placement that is absent or blank is a caller bug, and sending it costs
+    // real money: the request runs an auction, holds a budget reservation, and
+    // records an impression against a placement the publisher cannot find in
+    // their own reporting. A template that never got filled in, or a variable
+    // that resolved to undefined, is the ordinary way this happens. Fail closed
+    // and say which input was wrong.
+    if (typeof placement !== 'string' || placement.trim() === '') {
+      return this._settleLocalShow(ctx, 'invalid_placement')
+    }
     if (this.active) {
       ctx.blockingRequestId = this.active.requestId
       return this._settleLocalShow(ctx, 'busy')

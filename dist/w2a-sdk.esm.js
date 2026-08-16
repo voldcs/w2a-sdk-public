@@ -1,4 +1,4 @@
-/* w2a-src-sha256:04443ba398dca4aa0fb7f3d03af1b942d6a53e38d15f31f922221b9abdaee3e6 */
+/* w2a-src-sha256:480887b009bc944e92bce2b6b5496416b9a57da063d57fd84d6de8056277f871 */
 
 // src/index.js
 var STATES = ["loading", "opened", "closed", "rewarded", "failed", "no_fill", "unsupported"];
@@ -719,6 +719,9 @@ var W2ASDK = class {
   showAd(format, placement) {
     const ctx = { requestId: cryptoId(), format, placement };
     if (!this.cfg) return this._settleLocalShow(ctx, "not_initialised");
+    if (typeof placement !== "string" || placement.trim() === "") {
+      return this._settleLocalShow(ctx, "invalid_placement");
+    }
     if (this.active) {
       ctx.blockingRequestId = this.active.requestId;
       return this._settleLocalShow(ctx, "busy");
