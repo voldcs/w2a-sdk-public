@@ -9,13 +9,13 @@
     "version": "0.28.1"
   },
   "publication": {
-    "status": "not_published",
-    "checkedAt": null,
-    "githubVisibility": null,
+    "status": "published",
+    "checkedAt": "2026-08-16T13:09:04Z",
+    "githubVisibility": "PUBLIC",
     "tag": "0.3.5",
-    "tagPresent": false,
-    "jsdelivrHttpStatus": null,
-    "npmRegistryHttpStatus": null
+    "tagPresent": true,
+    "jsdelivrHttpStatus": 200,
+    "npmRegistryHttpStatus": 404
   },
   "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.5/dist/w2a-sdk.min.js",
   "artifacts": {
