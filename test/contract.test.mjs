@@ -142,13 +142,13 @@ test('0.3.4 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.equal(release.licenseSha256, RELEASE_SNAPSHOT.licenseSha256)
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
-    status: 'not_published',
-    checkedAt: null,
-    githubVisibility: null,
+    status: 'published',
+    checkedAt: '2026-08-16T12:20:39Z',
+    githubVisibility: "PUBLIC",
     tag: '0.3.4',
-    tagPresent: false,
-    jsdelivrHttpStatus: null,
-    npmRegistryHttpStatus: null,
+    tagPresent: true,
+    jsdelivrHttpStatus: 200,
+    npmRegistryHttpStatus: 404,
   })
   for (const [relativePath, expected] of Object.entries(RELEASE_SNAPSHOT.artifacts)) {
     assert.equal(release.artifacts[relativePath]?.sha256, expected)
