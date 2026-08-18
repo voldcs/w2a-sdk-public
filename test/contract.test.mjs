@@ -143,7 +143,7 @@ test('0.3.6 metadata identifies the reviewed core snapshot and build tool', asyn
   assert.deepEqual(release.buildTool, { name: 'esbuild', version: '0.28.1' })
   assert.deepEqual(release.publication, {
     status: 'published',
-    checkedAt: '2026-08-16T13:09:04Z',
+    checkedAt: '2026-08-18T09:06:00Z',
     githubVisibility: "PUBLIC",
     tag: '0.3.6',
     tagPresent: true,

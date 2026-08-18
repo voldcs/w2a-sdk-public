@@ -26,7 +26,7 @@ CDN (IIFE, global `W2A`). Pin a version and use Subresource Integrity so a
 compromised CDN can't inject code:
 ```html
 <script src="https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.6/dist/w2a-sdk.min.js"
-        integrity="sha384-sC09+Gnlyi7vEB7P0jbzB/J87u3cBmTPoWQ8sppEoCFBzV0TzNBjPimw4F8jgQRM"
+        integrity="sha384-dQ2olu+0y9gY6x3SCiA5GFIAmfmxjAjJta1Gnsy1rWn5w9EygX4/SKzRd8x19Uio"
         crossorigin="anonymous"></script>
 ```
 
