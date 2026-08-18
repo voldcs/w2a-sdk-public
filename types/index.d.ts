@@ -300,7 +300,14 @@ export interface W2ASDK {
   /** Claim and start a ready ad synchronously inside the current user gesture. */
   tryShowReady(format: AdFormat, placement: string): ReadyAdClaim
   /** Tear down only the active show with this requestId. Returns false for a
-   *  stale or unknown request so an old watchdog cannot cancel a newer ad. */
+   *  stale or unknown request so an old watchdog cannot cancel a newer ad.
+   *
+   *  The answer is about STATE, not authorship: `true` means the show with that
+   *  id is being torn down, not that this particular call is what tore it down.
+   *  Calling it from inside a synchronous callback that the teardown itself
+   *  emitted - a `rewarded` event, say - returns `true` while the teardown latch
+   *  absorbs the call and it changes nothing. Do not use the return value to
+   *  decide which caller owns the cleanup. */
   cancelActive(requestId: string, reason?: string): boolean
   /** Tell a click-suspended show that the player is back, for a native host
    *  that retained its WebView while an external store Activity covered it.

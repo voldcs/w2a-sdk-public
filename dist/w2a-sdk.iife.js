@@ -1,4 +1,4 @@
-/* w2a-src-sha256:480887b009bc944e92bce2b6b5496416b9a57da063d57fd84d6de8056277f871 */
+/* w2a-src-sha256:4294531b11ae55bc8fb6a61fdbc83403f7442ba256708bc23cb30bf7a9a9dd7f */
 var W2ANS = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -179,7 +179,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
    is what an unstyled placeholder looks like at phone scale, and it was the
    detail the partner's comparison landed on first. A filled disc also survives a
    light creative underneath, which a hairline outline does not. */
-.w2a-backdrop button[data-w2a="close"],.w2a-backdrop button[data-w2a="sound"]{
+.w2a-backdrop button[data-w2a="close"]{
  position:absolute;display:grid;place-items:center;width:50px;height:50px;margin:0;padding:0;
  border:0;border-radius:50%;background:rgba(0,0,0,.55);
  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
@@ -200,16 +200,11 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
    autoplay. Overriding width and border-radius from the shared disc rule above
    is deliberate; the label has to fit, and it is the label that removes the
    ambiguity. */
-.w2a-backdrop button[data-w2a="sound"]{z-index:50;
- top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;
- width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
- white-space:nowrap}
 .w2a-backdrop button[data-w2a="reward"]{pointer-events:auto;z-index:30;flex:0 0 auto;
  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35);color:#fff;
  padding:10px 18px;border-radius:999px;font-size:14px;min-height:44px;cursor:pointer;
  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .w2a-backdrop button[data-w2a="close"]:focus-visible,
-.w2a-backdrop button[data-w2a="sound"]:focus-visible,
 .w2a-cta:focus-visible{outline:3px solid #fff;outline-offset:3px}
 /* LANDSCAPE is the SAME two shapes, only tuned for a short viewport.
    What this replaces: a two-column split with an opaque panel beside the
@@ -1273,9 +1268,6 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         color: "#bbb"
       }, { textContent: closeAfterSecs > 0 ? String(closeAfterSecs) : "\xD7" });
       close.setAttribute("data-w2a", "close");
-      const soundBtn = el("button", { display: "none" }, { textContent: "Tap for sound" });
-      soundBtn.setAttribute("data-w2a", "sound");
-      soundBtn.setAttribute("aria-label", "Turn sound on");
       const showMeta = this.cfg.debugOverlay === true;
       const meta = el(
         "div",
@@ -1321,7 +1313,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
       stage.append(cardWrap, side);
       const adLabel = el("div", null, { className: "w2a-ad-label", textContent: "Advertisement" });
       adLabel.setAttribute("data-w2a", "ad-label");
-      backdrop.append(adLabel, close, soundBtn, stage);
+      backdrop.append(adLabel, close, stage);
       if (hidden) backdrop.style.display = "none";
       document.body.appendChild(backdrop);
       ctx.overlay = backdrop;
@@ -1543,7 +1535,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
         const measured = Number(advancingMs);
         const credibleMs = Number.isFinite(measured) && measured > 0 ? measured : 0;
         const seconds = Math.ceil(Math.max(0, videoRewardGateMs - credibleMs) / 1e3);
-        close.textContent = `Watch ${seconds}s`;
+        close.textContent = `${seconds}s`;
       };
       if (closeGatedOnEndcard) {
         close.setAttribute("data-state", "locked");
@@ -1559,7 +1551,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
               return;
             }
             const left = Math.ceil((closeAt - visibleMs()) / 1e3);
-            close.textContent = String(Math.max(1, left));
+            close.textContent = `${Math.max(1, left)}s`;
           }, 250);
           pushTimer(paint);
         });
@@ -1825,17 +1817,13 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
           if (ev && ev.target && ev.target.closest && ev.target.closest('[data-w2a="close"]')) return;
           vid.muted = false;
           ctx.audio = "audible";
-          soundBtn.style.display = "none";
           const p = vid.play();
           if (p && p.catch) p.catch(() => {
             vid.muted = true;
             ctx.audio = "muted_by_policy";
-            soundBtn.style.display = "block";
           });
         };
         const offerUnmute = () => {
-          soundBtn.style.display = "block";
-          soundBtn.addEventListener("click", unmute);
           backdrop.addEventListener("pointerdown", unmute, { capture: true, passive: true });
         };
         vid.addEventListener("loadeddata", () => {

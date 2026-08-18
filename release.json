@@ -1,23 +1,19 @@
 {
-  "version": "0.3.5",
-  "coreCommit": "b022d4a931e07995e3f2698027a02e972bdc972e",
-  "sourceSha256": "480887b009bc944e92bce2b6b5496416b9a57da063d57fd84d6de8056277f871",
-  "typesSha256": "bb2039f9912fe17beddf5f8c779308e0a0bf88b86eb6d5cf1c2293cd138ff1c4",
+  "version": "0.3.6",
+  "coreCommit": "757c468bc191a433bf28931f92fa8f321ce5e39b",
+  "sourceSha256": "4294531b11ae55bc8fb6a61fdbc83403f7442ba256708bc23cb30bf7a9a9dd7f",
+  "typesSha256": "4dd75b950af7d0b002bdaae051bda6a7e2aaf386d1bca4b649b1eb5d8cd1fc75",
   "licenseSha256": "6d093b2cd97e8958606fe4d673864e4add44b3534e1fdc6d355b0f5fe70b763e",
   "buildTool": {
     "name": "esbuild",
     "version": "0.28.1"
   },
   "publication": {
-    "status": "published",
-    "checkedAt": "2026-08-16T13:09:04Z",
-    "githubVisibility": "PUBLIC",
-    "tag": "0.3.5",
-    "tagPresent": true,
-    "jsdelivrHttpStatus": 200,
-    "npmRegistryHttpStatus": 404
+    "status": "not_published",
+    "checkedAt": null,
+    "jsdelivrHttpStatus": null
   },
-  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.5/dist/w2a-sdk.min.js",
+  "cdnUrl": "https://cdn.jsdelivr.net/gh/voldcs/w2a-sdk-public@0.3.6/dist/w2a-sdk.min.js",
   "artifacts": {
     "dist/w2a-sdk.esm.js": {
       "sha256": "7d0da19172fc479c34a73d1f8fd9bb87040b4cd74fe159b3f30133ae46ee0134"
@@ -29,5 +25,11 @@
       "sha256": "a33bb98fadde69e9ff6c45237a485f26ada7526fa9e73dd1afcbcb50338417e2",
       "sri": "sha384-sC09+Gnlyi7vEB7P0jbzB/J87u3cBmTPoWQ8sppEoCFBzV0TzNBjPimw4F8jgQRM"
     }
-  }
+  },
+  "bundles": {
+    "w2a-sdk.esm.js": "b817e5058760e33432108fb77289dbe8b79d14efdd175d79a84e093b1994230d",
+    "w2a-sdk.min.js": "e6dae544226abfc440bef3365bc7755ca50f55e3939d4a80de0c3effda8d9ddf",
+    "w2a-sdk.iife.js": "f5a6125350256bc033c65087fcae9d5cce984f05ac3cf306a2a89602703d0e92"
+  },
+  "minifiedSri": "sha384-dQ2olu+0y9gY6x3SCiA5GFIAmfmxjAjJta1Gnsy1rWn5w9EygX4/SKzRd8x19Uio"
 }

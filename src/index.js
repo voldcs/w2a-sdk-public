@@ -187,7 +187,7 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
    is what an unstyled placeholder looks like at phone scale, and it was the
    detail the partner's comparison landed on first. A filled disc also survives a
    light creative underneath, which a hairline outline does not. */
-.w2a-backdrop button[data-w2a="close"],.w2a-backdrop button[data-w2a="sound"]{
+.w2a-backdrop button[data-w2a="close"]{
  position:absolute;display:grid;place-items:center;width:50px;height:50px;margin:0;padding:0;
  border:0;border-radius:50%;background:rgba(0,0,0,.55);
  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
@@ -208,16 +208,11 @@ iframe.w2a-media,.w2a-frame{position:absolute;z-index:10;inset:0;width:100%;heig
    autoplay. Overriding width and border-radius from the shared disc rule above
    is deliberate; the label has to fit, and it is the label that removes the
    ambiguity. */
-.w2a-backdrop button[data-w2a="sound"]{z-index:50;
- top:calc(var(--w2a-t) + 12px);left:calc(var(--w2a-l) + 12px);right:auto;
- width:auto;min-width:50px;padding:0 16px;border-radius:999px;font-size:14px;
- white-space:nowrap}
 .w2a-backdrop button[data-w2a="reward"]{pointer-events:auto;z-index:30;flex:0 0 auto;
  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35);color:#fff;
  padding:10px 18px;border-radius:999px;font-size:14px;min-height:44px;cursor:pointer;
  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .w2a-backdrop button[data-w2a="close"]:focus-visible,
-.w2a-backdrop button[data-w2a="sound"]:focus-visible,
 .w2a-cta:focus-visible{outline:3px solid #fff;outline-offset:3px}
 /* LANDSCAPE is the SAME two shapes, only tuned for a short viewport.
    What this replaces: a two-column split with an opaque panel beside the
@@ -1549,9 +1544,11 @@ class W2ASDK {
     // and the first partner to see it filed it as a mute button that should be
     // removed - which would have left every policy-muted ad silent forever, the
     // exact opposite of the requirement. A word says what a glyph could not.
-    const soundBtn = el('button', { display: 'none' }, { textContent: 'Tap for sound' })
-    soundBtn.setAttribute('data-w2a', 'sound')
-    soundBtn.setAttribute('aria-label', 'Turn sound on')
+    // NO SOUND CONTROL AT ALL. Ad audio is mandatory and the player does not get
+    // a switch for it - stated by the owner repeatedly, and the button kept being
+    // read as one however it was labelled. Recovery from a browser that refused
+    // unmuted autoplay now rides entirely on the first touch anywhere on the ad,
+    // which is the listener `offerUnmute` already installs on the backdrop.
 
     // The request id, format and placement are OUR debugging aids. They were
     // rendered into every ad, which means a partner evaluating the product read
@@ -1609,7 +1606,7 @@ class W2ASDK {
     listing.append(title, sub, facts, storeName)
     side.append(icon, listing, cta, rewardBtn, meta)
     stage.append(cardWrap, side)
-    // `close` and `soundBtn` stay direct children of the backdrop: they are
+    // `close` stays a direct child of the backdrop: it is
     // pinned to screen corners, so they must not travel when the stage switches
     // between column and row on rotation.
     // Say that this is an ad. It was not labelled at all, which is the one item
@@ -1620,7 +1617,7 @@ class W2ASDK {
     // any label is indefensible either way.
     const adLabel = el('div', null, { className: 'w2a-ad-label', textContent: 'Advertisement' })
     adLabel.setAttribute('data-w2a', 'ad-label')
-    backdrop.append(adLabel, close, soundBtn, stage)
+    backdrop.append(adLabel, close, stage)
     if (hidden) backdrop.style.display = 'none'
     document.body.appendChild(backdrop)
     // Overlay ownership is per-show (ctx), not per-instance. A late teardown from
@@ -2052,6 +2049,13 @@ class W2ASDK {
     // same credible playback that earns the reward advances. A rewarded IMAGE
     // is its own end card from the first frame, so gating it the same way would
     // arm the × instantly - strictly worse than the timer it replaced.
+    // TWO WAITS, one per format, and NEITHER shows a close control while it runs.
+    // Rewarded waits 30 seconds, the reward gate, and the slot counts down
+    // credible playback towards it. An interstitial waits 5, counted in visible
+    // time. Both then become an exit. The difference is deliberate: an
+    // interstitial nobody can dismiss until a 30-second film ends is a trap for
+    // the player and a policy problem for the publisher, while a rewarded ad that
+    // can be waved away mid-roll is one the advertiser paid for and nobody saw.
     const closeGatedOnEndcard = ctx.format === 'rewarded' && isVideoCreative
     const wantedRewardMs = Number(this.cfg.videoRewardMs)
     const videoRewardGateMs = Number.isFinite(wantedRewardMs) && wantedRewardMs >= 0
@@ -2062,7 +2066,7 @@ class W2ASDK {
       const measured = Number(advancingMs)
       const credibleMs = Number.isFinite(measured) && measured > 0 ? measured : 0
       const seconds = Math.ceil(Math.max(0, videoRewardGateMs - credibleMs) / 1000)
-      close.textContent = `Watch ${seconds}s`
+      close.textContent = `${seconds}s`
     }
     if (closeGatedOnEndcard) {
       close.setAttribute('data-state', 'locked')
@@ -2093,7 +2097,9 @@ class W2ASDK {
         const paint = setInterval(() => {
           if (ctx.completed || closeArmed) { clearInterval(paint); return }
           const left = Math.ceil((closeAt - visibleMs()) / 1000)
-          close.textContent = String(Math.max(1, left))
+          // Same shape as the rewarded countdown - a bare number reads as a
+          // button label, and this is not a button.
+          close.textContent = `${Math.max(1, left)}s`
         }, 250)
         pushTimer(paint)
       })
@@ -2511,13 +2517,13 @@ class W2ASDK {
         // gesture does not merely fail, WebKit pauses playback.
         vid.muted = false
         ctx.audio = 'audible'
-        soundBtn.style.display = 'none'
         const p = vid.play()
-        if (p && p.catch) p.catch(() => { vid.muted = true; ctx.audio = 'muted_by_policy'; soundBtn.style.display = 'block' })
+        if (p && p.catch) p.catch(() => { vid.muted = true; ctx.audio = 'muted_by_policy' })
       }
+      // One recovery path, and it is the whole ad surface. A player whose browser
+      // refused unmuted autoplay gets sound back on their next touch without ever
+      // being shown a control that looks like it turns sound OFF.
       const offerUnmute = () => {
-        soundBtn.style.display = 'block'
-        soundBtn.addEventListener('click', unmute)
         backdrop.addEventListener('pointerdown', unmute, { capture: true, passive: true })
       }
       // A video is only "ready" once the browser holds decodable data for it -
